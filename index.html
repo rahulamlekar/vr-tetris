@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VR Tetris - Quest 3</title>
+  <title>VR Blockout - Quest 3</title>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <style>
     body { margin: 0; overflow: hidden; background: #000; }
@@ -16,7 +16,7 @@
     #controls-info {
       position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
       z-index: 999; color: #fff; font-family: 'Courier New', monospace;
-      font-size: 14px; text-align: center; opacity: 0.7; pointer-events: none;
+      font-size: 13px; text-align: center; opacity: 0.7; pointer-events: none;
     }
     #game-over-screen {
       display: none; position: fixed; top: 50%; left: 50%;
@@ -24,358 +24,430 @@
       color: #f00; font-family: 'Courier New', monospace;
       font-size: 48px; text-align: center; text-shadow: 0 0 20px #f00;
     }
-    #game-over-screen .restart-hint { font-size: 18px; color: #fff; margin-top: 20px; }
+    #game-over-screen .sub { font-size: 18px; color: #fff; margin-top: 20px; }
   </style>
 </head>
 <body>
 
 <div id="hud">
-  <h2>VR TETRIS</h2>
+  <h2>VR BLOCKOUT</h2>
   <div>Score: <span id="score">0</span></div>
-  <div>Lines: <span id="lines">0</span></div>
+  <div>Layers: <span id="layers-cleared">0</span></div>
   <div>Level: <span id="level">1</span></div>
 </div>
 
 <div id="controls-info">
-  <b>Desktop:</b> Arrow Keys = Move | Z/X = Rotate | Space = Drop<br>
-  <b>VR Controllers:</b> Thumbstick = Move | Twist Wrist = Rotate | Trigger = Drop
+  <b>Desktop:</b> Arrows = Move | Q/E = Rotate X | W/S = Rotate Z | A/D = Rotate Y | Space = Drop<br>
+  <b>VR:</b> Thumbstick = Move | Twist Wrist = Rotate | Trigger = Drop | Grip = Change Axis
 </div>
 
 <div id="game-over-screen">
   GAME OVER
-  <div class="restart-hint">Press R or Grip button to restart</div>
+  <div class="sub">Press R or Grip to restart</div>
 </div>
 
-<a-scene vr-mode-ui="enabled: true" renderer="antialias: true; colorManagement: true" tetris-game>
-  <a-sky color="#0a0a1a"></a-sky>
-  <a-entity light="type: ambient; color: #446; intensity: 0.6"></a-entity>
-  <a-entity light="type: directional; color: #fff; intensity: 0.8" position="1 3 2"></a-entity>
+<a-scene vr-mode-ui="enabled: true" renderer="antialias: true; colorManagement: true" blockout-game>
+  <a-sky color="#060612"></a-sky>
+  <a-entity light="type: ambient; color: #668; intensity: 0.5"></a-entity>
+  <a-entity light="type: directional; color: #fff; intensity: 0.7" position="2 5 3"></a-entity>
+  <a-entity light="type: point; color: #48f; intensity: 0.5" position="-2 4 -2"></a-entity>
 
-  <!-- Camera rig - in VR this becomes the headset position -->
-  <a-entity id="rig" position="0 1.6 2">
-    <a-camera wasd-controls-enabled="false" look-controls="pointerLockEnabled: false"></a-camera>
+  <!-- Desktop camera: angled down into the pit -->
+  <!-- Desktop camera: angled view looking down into the pit -->
+  <a-entity id="rig" position="0 7 4">
+    <a-camera wasd-controls-enabled="false" look-controls="pointerLockEnabled: false"
+              rotation="-50 0 0"></a-camera>
   </a-entity>
 
   <!-- VR Controllers -->
-  <a-entity id="left-hand" hand-controls="hand: left; handModelStyle: lowPoly" vr-controls="hand: left"></a-entity>
-  <a-entity id="right-hand" hand-controls="hand: right; handModelStyle: lowPoly" vr-controls="hand: right"></a-entity>
+  <a-entity id="left-hand" hand-controls="hand: left; handModelStyle: lowPoly" vr-blockout-controls="hand: left"></a-entity>
+  <a-entity id="right-hand" hand-controls="hand: right; handModelStyle: lowPoly" vr-blockout-controls="hand: right"></a-entity>
 
-  <!-- Game container - everything is built via Three.js in the component -->
-  <a-entity id="game-container" position="0 0.5 -1.5"></a-entity>
+  <!-- Game container -->
+  <a-entity id="game-container" position="0 0 0"></a-entity>
 
-  <!-- VR HUD text - attached to game container so visible in VR -->
-  <a-entity id="vr-hud" position="0 0.5 -1.5">
-    <a-text id="vr-score" value="Score: 0" position="-1.6 2.5 0" color="#0ff" width="3" font="monoid"></a-text>
-    <a-text id="vr-lines" value="Lines: 0" position="-1.6 2.3 0" color="#0ff" width="2.5" font="monoid"></a-text>
-    <a-text id="vr-level" value="Level: 1" position="-1.6 2.1 0" color="#0ff" width="2.5" font="monoid"></a-text>
-    <a-text value="NEXT" position="1.5 2.5 0" color="#fff" width="2" align="center" font="monoid"></a-text>
-    <a-text id="vr-gameover" value="" position="0 1.5 0.3" color="#f00" width="6" align="center" font="monoid" visible="false"></a-text>
-    <a-text id="vr-controls-text" value="Thumbstick: Move\nTwist Wrist: Rotate\nTrigger: Drop" position="0 -0.3 0" color="#888" width="2" align="center" font="monoid"></a-text>
+  <!-- VR HUD -->
+  <a-entity id="vr-hud" position="-2.2 4 -1">
+    <a-text id="vr-title" value="BLOCKOUT" position="0 0.6 0" color="#0ff" width="4" font="monoid"></a-text>
+    <a-text id="vr-score" value="Score: 0" position="0 0.3 0" color="#0ff" width="2.5" font="monoid"></a-text>
+    <a-text id="vr-layers" value="Layers: 0" position="0 0.1 0" color="#0ff" width="2.5" font="monoid"></a-text>
+    <a-text id="vr-level" value="Level: 1" position="0 -0.1 0" color="#0ff" width="2.5" font="monoid"></a-text>
+    <a-text id="vr-axis" value="Rotate: X axis" position="0 -0.4 0" color="#ff0" width="2" font="monoid"></a-text>
+    <a-text id="vr-gameover" value="" position="0.7 1.2 0.5" color="#f00" width="5" align="center" font="monoid" visible="false"></a-text>
   </a-entity>
 </a-scene>
 
 <script>
 // ============================================================
-// TETRIS GAME ENGINE
+// 3D BLOCKOUT ENGINE
 // ============================================================
 
-const COLS = 10;
-const ROWS = 20;
-const BLOCK_SIZE = 0.15;
-const BOARD_OFFSET_X = -(COLS * BLOCK_SIZE) / 2 + BLOCK_SIZE / 2;
-const BOARD_OFFSET_Y = 0;
+const PIT_W = 5;  // x
+const PIT_D = 5;  // z
+const PIT_H = 12; // y (height / layers)
+const BLOCK = 0.4; // size of each cube
 
-const PIECES = {
-  I: { shape: [[0,0],[1,0],[2,0],[3,0]], color: 0x00ffff },
-  O: { shape: [[0,0],[1,0],[0,1],[1,1]], color: 0xffff00 },
-  T: { shape: [[0,0],[1,0],[2,0],[1,1]], color: 0xaa00ff },
-  S: { shape: [[1,0],[2,0],[0,1],[1,1]], color: 0x00ff00 },
-  Z: { shape: [[0,0],[1,0],[1,1],[2,1]], color: 0xff0000 },
-  J: { shape: [[0,0],[0,1],[1,1],[2,1]], color: 0x0044ff },
-  L: { shape: [[2,0],[0,1],[1,1],[2,1]], color: 0xff8800 }
-};
-const PIECE_KEYS = Object.keys(PIECES);
+// 3D piece definitions: arrays of [x, y, z] offsets
+// y=0 is the top of the piece (entry point), pieces fall in -y direction in pit coords
+const PIECES_3D = [
+  // Flat pieces (easier)
+  { name: 'I3',  blocks: [[0,0,0],[1,0,0],[2,0,0]], color: 0x00ffff },
+  { name: 'I4',  blocks: [[0,0,0],[1,0,0],[2,0,0],[3,0,0]], color: 0x00ccff },
+  { name: 'L',   blocks: [[0,0,0],[1,0,0],[2,0,0],[2,0,1]], color: 0xff8800 },
+  { name: 'J',   blocks: [[0,0,0],[1,0,0],[2,0,0],[0,0,1]], color: 0x0044ff },
+  { name: 'S',   blocks: [[1,0,0],[2,0,0],[0,0,1],[1,0,1]], color: 0x00ff00 },
+  { name: 'Z',   blocks: [[0,0,0],[1,0,0],[1,0,1],[2,0,1]], color: 0xff0000 },
+  { name: 'T',   blocks: [[0,0,0],[1,0,0],[2,0,0],[1,0,1]], color: 0xaa00ff },
+  { name: 'O',   blocks: [[0,0,0],[1,0,0],[0,0,1],[1,0,1]], color: 0xffff00 },
+  // 3D pieces (use the vertical axis)
+  { name: 'L3D', blocks: [[0,0,0],[1,0,0],[1,1,0]], color: 0xff4488 },
+  { name: 'S3D', blocks: [[0,0,0],[0,1,0],[1,1,0]], color: 0x44ff88 },
+  { name: 'T3D', blocks: [[0,0,0],[1,0,0],[0,1,0],[0,0,1]], color: 0x8844ff },
+  { name: 'I2',  blocks: [[0,0,0],[0,1,0]], color: 0x88ffff },
+  { name: 'Dot', blocks: [[0,0,0]], color: 0xffffff },
+];
 
-let board = [];
-let currentPiece = null;
-let currentX = 0, currentY = 0;
-let currentRotation = [];
-let nextPieceKey = null;
-let score = 0, lines = 0, level = 1;
+// Game state
+let pit = [];  // pit[y][z][x] — y=0 is bottom, y=PIT_H-1 is top
+let curPiece = null;
+let curBlocks = [];
+let curX = 0, curY = 0, curZ = 0;
+let nextPieceIdx = null;
+let score = 0, layersCleared = 0, level = 1;
 let gameOver = false;
-let dropInterval = 1000;
+let dropInterval = 1200;
 let lastDrop = 0;
+let rotateAxis = 0; // 0=X, 1=Y, 2=Z
 
-function initBoard() {
-  board = [];
-  for (let y = 0; y < ROWS; y++) {
-    board[y] = Array(COLS).fill(null);
+function initPit() {
+  pit = [];
+  for (let y = 0; y < PIT_H; y++) {
+    pit[y] = [];
+    for (let z = 0; z < PIT_D; z++) {
+      pit[y][z] = Array(PIT_W).fill(null);
+    }
   }
 }
 
-function randomPiece() {
-  return PIECE_KEYS[Math.floor(Math.random() * PIECE_KEYS.length)];
+function randomPieceIdx() {
+  return Math.floor(Math.random() * PIECES_3D.length);
 }
 
-function rotateShape(shape) {
-  const maxY = Math.max(...shape.map(b => b[1]));
-  return shape.map(([x, y]) => [maxY - y, x]);
+// Rotate blocks around an axis (90 degrees)
+function rotateBlocksAxis(blocks, axis) {
+  // axis: 0=X (yz plane), 1=Y (xz plane), 2=Z (xy plane)
+  return blocks.map(([x, y, z]) => {
+    if (axis === 0) return [x, -z, y];   // rotate around X
+    if (axis === 1) return [z, y, -x];   // rotate around Y
+    return [-y, x, z];                    // rotate around Z
+  });
 }
 
-function collides(shape, offX, offY) {
-  for (const [bx, by] of shape) {
-    const nx = offX + bx, ny = offY + by;
-    if (nx < 0 || nx >= COLS || ny >= ROWS) return true;
-    if (ny >= 0 && board[ny][nx]) return true;
+// Normalize blocks so minimum coords are 0
+function normalizeBlocks(blocks) {
+  const minX = Math.min(...blocks.map(b => b[0]));
+  const minY = Math.min(...blocks.map(b => b[1]));
+  const minZ = Math.min(...blocks.map(b => b[2]));
+  return blocks.map(([x, y, z]) => [x - minX, y - minY, z - minZ]);
+}
+
+function collides3D(blocks, ox, oy, oz) {
+  for (const [bx, by, bz] of blocks) {
+    const nx = ox + bx, ny = oy + by, nz = oz + bz;
+    if (nx < 0 || nx >= PIT_W || nz < 0 || nz >= PIT_D) return true;
+    if (ny < 0) return true; // hit bottom
+    if (ny < PIT_H && pit[ny][nz][nx] !== null) return true;
   }
   return false;
 }
 
-function lockPiece() {
-  const piece = PIECES[currentPiece];
-  for (const [bx, by] of currentRotation) {
-    const x = currentX + bx, y = currentY + by;
-    if (y < 0) { triggerGameOver(); return; }
-    board[y][x] = piece.color;
+function lockPiece3D() {
+  const piece = PIECES_3D[curPiece];
+  for (const [bx, by, bz] of curBlocks) {
+    const x = curX + bx, y = curY + by, z = curZ + bz;
+    if (y >= PIT_H) { triggerGameOver(); return; }
+    if (y >= 0 && y < PIT_H) pit[y][z][x] = piece.color;
   }
-  clearLines();
-  spawnPiece();
+  clearLayers();
+  spawnPiece3D();
 }
 
-function clearLines() {
+function clearLayers() {
   let cleared = 0;
-  for (let y = ROWS - 1; y >= 0; y--) {
-    if (board[y].every(cell => cell !== null)) {
-      board.splice(y, 1);
-      board.unshift(Array(COLS).fill(null));
-      cleared++; y++;
+  for (let y = 0; y < PIT_H; y++) {
+    let full = true;
+    outer: for (let z = 0; z < PIT_D; z++) {
+      for (let x = 0; x < PIT_W; x++) {
+        if (pit[y][z][x] === null) { full = false; break outer; }
+      }
+    }
+    if (full) {
+      // Remove layer, shift everything above down
+      pit.splice(y, 1);
+      const emptyLayer = [];
+      for (let z = 0; z < PIT_D; z++) emptyLayer.push(Array(PIT_W).fill(null));
+      pit.push(emptyLayer);
+      cleared++;
+      y--; // recheck
     }
   }
   if (cleared > 0) {
-    score += ([0, 100, 300, 500, 800][cleared] || 800) * level;
-    lines += cleared;
-    level = Math.floor(lines / 10) + 1;
-    dropInterval = Math.max(100, 1000 - (level - 1) * 80);
+    score += [0, 100, 300, 600, 1000][Math.min(cleared, 4)] * level;
+    layersCleared += cleared;
+    level = Math.floor(layersCleared / 5) + 1;
+    dropInterval = Math.max(200, 1200 - (level - 1) * 100);
     updateHUD();
   }
 }
 
-function spawnPiece() {
-  currentPiece = nextPieceKey || randomPiece();
-  nextPieceKey = randomPiece();
-  currentRotation = [...PIECES[currentPiece].shape];
-  currentX = Math.floor(COLS / 2) - 1;
-  currentY = 0;
-  if (collides(currentRotation, currentX, currentY)) triggerGameOver();
+function spawnPiece3D() {
+  curPiece = nextPieceIdx !== null ? nextPieceIdx : randomPieceIdx();
+  nextPieceIdx = randomPieceIdx();
+  curBlocks = [...PIECES_3D[curPiece].blocks.map(b => [...b])];
+
+  // Center piece in pit
+  const maxX = Math.max(...curBlocks.map(b => b[0]));
+  const maxZ = Math.max(...curBlocks.map(b => b[2]));
+  curX = Math.floor((PIT_W - maxX - 1) / 2);
+  curZ = Math.floor((PIT_D - maxZ - 1) / 2);
+  curY = PIT_H - 1; // start at top
+
+  // Move up if needed so piece doesn't overlap
+  const maxBY = Math.max(...curBlocks.map(b => b[1]));
+  curY = PIT_H - 1 + maxBY;
+
+  if (collides3D(curBlocks, curX, curY - 1, curZ) && curY <= PIT_H) {
+    // Check if it's actually blocked at the very top
+    let blocked = true;
+    for (let testY = curY; testY < curY + 4; testY++) {
+      if (!collides3D(curBlocks, curX, testY, curZ)) { blocked = false; curY = testY; break; }
+    }
+    if (blocked) triggerGameOver();
+  }
 }
 
 function triggerGameOver() {
   gameOver = true;
   document.getElementById('game-over-screen').style.display = 'block';
   const vrGO = document.getElementById('vr-gameover');
-  if (vrGO) {
-    vrGO.setAttribute('value', 'GAME OVER\nGrip to restart');
-    vrGO.setAttribute('visible', true);
-  }
+  if (vrGO) { vrGO.setAttribute('value', 'GAME OVER\nGrip to restart'); vrGO.setAttribute('visible', true); }
 }
 
 function restartGame() {
-  initBoard();
-  score = 0; lines = 0; level = 1;
-  dropInterval = 1000; gameOver = false;
+  initPit();
+  score = 0; layersCleared = 0; level = 1;
+  dropInterval = 1200; gameOver = false;
   document.getElementById('game-over-screen').style.display = 'none';
   const vrGO = document.getElementById('vr-gameover');
   if (vrGO) vrGO.setAttribute('visible', false);
   updateHUD();
-  spawnPiece();
+  spawnPiece3D();
 }
 
-function movePiece(dx, dy) {
+function movePiece3D(dx, dz) {
   if (gameOver) return false;
-  if (!collides(currentRotation, currentX + dx, currentY + dy)) {
-    currentX += dx; currentY += dy; return true;
+  if (!collides3D(curBlocks, curX + dx, curY, curZ + dz)) {
+    curX += dx; curZ += dz; return true;
   }
   return false;
 }
 
-function rotatePiece(dir) {
+function dropPiece3D() {
+  if (gameOver) return false;
+  if (!collides3D(curBlocks, curX, curY - 1, curZ)) {
+    curY--; return true;
+  }
+  return false;
+}
+
+function rotatePiece3D(axis) {
   if (gameOver) return;
-  let newShape = [...currentRotation];
-  const rotations = dir > 0 ? 1 : 3;
-  for (let i = 0; i < rotations; i++) newShape = rotateShape(newShape);
-  for (const kickX of [0, -1, 1, -2, 2]) {
-    if (!collides(newShape, currentX + kickX, currentY)) {
-      currentRotation = newShape; currentX += kickX; return;
+  let newBlocks = rotateBlocksAxis(curBlocks, axis);
+  newBlocks = normalizeBlocks(newBlocks);
+
+  // Try current position, then kick offsets
+  const kicks = [
+    [0,0], [1,0], [-1,0], [0,1], [0,-1], [1,1], [-1,1], [1,-1], [-1,-1]
+  ];
+  for (const [kx, kz] of kicks) {
+    if (!collides3D(newBlocks, curX + kx, curY, curZ + kz)) {
+      curBlocks = newBlocks;
+      curX += kx; curZ += kz;
+      return;
     }
   }
 }
 
-function hardDrop() {
+function hardDrop3D() {
   if (gameOver) return;
-  while (!collides(currentRotation, currentX, currentY + 1)) { currentY++; score += 2; }
-  updateHUD(); lockPiece();
+  while (!collides3D(curBlocks, curX, curY - 1, curZ)) { curY--; score += 2; }
+  updateHUD();
+  lockPiece3D();
 }
 
-function getGhostY() {
-  let gy = currentY;
-  while (!collides(currentRotation, currentX, gy + 1)) gy++;
+function getGhostY3D() {
+  let gy = curY;
+  while (!collides3D(curBlocks, curX, gy - 1, curZ)) gy--;
   return gy;
 }
 
 function updateHUD() {
   document.getElementById('score').textContent = score;
-  document.getElementById('lines').textContent = lines;
+  document.getElementById('layers-cleared').textContent = layersCleared;
   document.getElementById('level').textContent = level;
   const vs = document.getElementById('vr-score');
-  const vl = document.getElementById('vr-lines');
+  const vl = document.getElementById('vr-layers');
   const vlv = document.getElementById('vr-level');
   if (vs) vs.setAttribute('value', 'Score: ' + score);
-  if (vl) vl.setAttribute('value', 'Lines: ' + lines);
+  if (vl) vl.setAttribute('value', 'Layers: ' + layersCleared);
   if (vlv) vlv.setAttribute('value', 'Level: ' + level);
 }
 
+function updateAxisDisplay() {
+  const names = ['X', 'Y', 'Z'];
+  const va = document.getElementById('vr-axis');
+  if (va) va.setAttribute('value', 'Rotate: ' + names[rotateAxis] + ' axis');
+}
+
 // ============================================================
-// THREE.JS DIRECT RENDERING (VR-safe, no DOM manipulation)
+// THREE.JS RENDERING
 // ============================================================
 
-AFRAME.registerComponent('tetris-game', {
+AFRAME.registerComponent('blockout-game', {
   init: function () {
     const scene = this.el;
     const container = document.getElementById('game-container');
 
-    // Wait for container to be ready
     const waitForContainer = () => {
-      if (!container.object3D) {
-        setTimeout(waitForContainer, 100);
-        return;
-      }
+      if (!container.object3D) { setTimeout(waitForContainer, 100); return; }
       this.setupGame(container.object3D);
     };
-
-    scene.addEventListener('loaded', () => {
-      waitForContainer();
-    });
+    scene.addEventListener('loaded', () => waitForContainer());
   },
 
   setupGame: function (parentObj) {
     const THREE = AFRAME.THREE;
-    const blockGeo = new THREE.BoxGeometry(BLOCK_SIZE * 0.92, BLOCK_SIZE * 0.92, BLOCK_SIZE * 0.92);
+    const blockGeo = new THREE.BoxGeometry(BLOCK * 0.9, BLOCK * 0.9, BLOCK * 0.9);
 
-    // --- Pre-allocate all meshes ---
-
-    // Board blocks: ROWS * COLS meshes (max blocks on board)
-    this.boardMeshes = [];
-    for (let i = 0; i < ROWS * COLS; i++) {
+    // Pre-allocate board meshes (PIT_W * PIT_D * PIT_H max)
+    const MAX_PIT_BLOCKS = PIT_W * PIT_D * PIT_H;
+    this.pitMeshes = [];
+    for (let i = 0; i < MAX_PIT_BLOCKS; i++) {
       const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.3, roughness: 0.4 });
       const mesh = new THREE.Mesh(blockGeo, mat);
       mesh.visible = false;
       parentObj.add(mesh);
-      this.boardMeshes.push(mesh);
+      this.pitMeshes.push(mesh);
     }
 
-    // Current piece: 4 meshes
-    this.currentMeshes = [];
-    for (let i = 0; i < 4; i++) {
-      const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.3, roughness: 0.4 });
+    // Current piece: up to 5 blocks (with emissive glow)
+    this.curMeshes = [];
+    for (let i = 0; i < 5; i++) {
+      const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.2, roughness: 0.3, emissive: 0xffffff, emissiveIntensity: 0.3 });
       const mesh = new THREE.Mesh(blockGeo, mat);
       mesh.visible = false;
       parentObj.add(mesh);
-      this.currentMeshes.push(mesh);
+      this.curMeshes.push(mesh);
     }
 
-    // Ghost piece: 4 meshes
+    // Ghost piece
     this.ghostMeshes = [];
-    for (let i = 0; i < 4; i++) {
-      const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.3, roughness: 0.4, transparent: true, opacity: 0.25 });
+    for (let i = 0; i < 5; i++) {
+      const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.1, roughness: 0.5, transparent: true, opacity: 0.15 });
       const mesh = new THREE.Mesh(blockGeo, mat);
       mesh.visible = false;
       parentObj.add(mesh);
       this.ghostMeshes.push(mesh);
     }
 
-    // Next piece: 4 meshes
+    // Next piece preview
     this.nextMeshes = [];
-    const nextOffsetX = 1.5;
-    const nextOffsetY = 1.8;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.3, roughness: 0.4 });
       const mesh = new THREE.Mesh(blockGeo, mat);
       mesh.visible = false;
       parentObj.add(mesh);
       this.nextMeshes.push(mesh);
     }
-    this.nextOffsetX = nextOffsetX;
-    this.nextOffsetY = nextOffsetY;
 
-    // --- Build static frame using Three.js ---
-    this.buildFrame(parentObj, THREE);
+    // Build pit wireframe
+    this.buildPit(parentObj, THREE);
 
-    // --- Build starfield ---
+    // Stars
     this.buildStars(parentObj, THREE);
 
-    // --- Start game ---
-    initBoard();
-    spawnPiece();
+    // Start
+    initPit();
+    spawnPiece3D();
     updateHUD();
+    updateAxisDisplay();
     this.gameReady = true;
   },
 
-  buildFrame: function (parentObj, THREE) {
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x222244, metalness: 0.6, roughness: 0.2 });
-    const boardW = COLS * BLOCK_SIZE;
-    const boardH = ROWS * BLOCK_SIZE;
-    const cx = BOARD_OFFSET_X + boardW / 2 - BLOCK_SIZE / 2;
-    const cy = BOARD_OFFSET_Y + boardH / 2 - BLOCK_SIZE / 2;
+  buildPit: function (parentObj, THREE) {
+    const w = PIT_W * BLOCK;
+    const d = PIT_D * BLOCK;
+    const h = PIT_H * BLOCK;
 
-    // Left wall
-    const leftGeo = new THREE.BoxGeometry(BLOCK_SIZE * 0.3, boardH + BLOCK_SIZE * 0.3, BLOCK_SIZE);
-    const left = new THREE.Mesh(leftGeo, frameMat);
-    left.position.set(BOARD_OFFSET_X - BLOCK_SIZE * 0.65, cy, 0);
-    parentObj.add(left);
+    // Pit offset: centered at origin, bottom at y=0
+    // Blocks sit at x: [0, PIT_W-1]*BLOCK centered, same for z, y from 0 up
 
-    // Right wall
-    const right = new THREE.Mesh(leftGeo, frameMat);
-    right.position.set(BOARD_OFFSET_X + boardW - BLOCK_SIZE * 0.35, cy, 0);
-    parentObj.add(right);
+    // Wireframe edges for the pit
+    const edgeMat = new THREE.LineBasicMaterial({ color: 0x3366cc, transparent: true, opacity: 0.6 });
 
-    // Bottom wall
-    const bottomGeo = new THREE.BoxGeometry(boardW + BLOCK_SIZE * 0.6, BLOCK_SIZE * 0.3, BLOCK_SIZE);
-    const bottom = new THREE.Mesh(bottomGeo, frameMat);
-    bottom.position.set(cx, BOARD_OFFSET_Y - BLOCK_SIZE * 0.65, 0);
-    parentObj.add(bottom);
+    // Helper: line between two points
+    const addLine = (x1,y1,z1, x2,y2,z2) => {
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(x1,y1,z1), new THREE.Vector3(x2,y2,z2)
+      ]);
+      parentObj.add(new THREE.Line(geo, edgeMat));
+    };
 
-    // Back panel
-    const backMat = new THREE.MeshStandardMaterial({ color: 0x111122, transparent: true, opacity: 0.3, metalness: 0.8, roughness: 0.1 });
-    const backGeo = new THREE.BoxGeometry(boardW, boardH, BLOCK_SIZE * 0.1);
-    const back = new THREE.Mesh(backGeo, backMat);
-    back.position.set(cx, cy, -BLOCK_SIZE * 0.55);
-    parentObj.add(back);
+    const ox = -w/2, oz = -d/2, oy = 0;
 
-    // Grid lines
-    const gridMat = new THREE.MeshBasicMaterial({ color: 0x222233 });
-    for (let x = 0; x <= COLS; x++) {
-      const geo = new THREE.BoxGeometry(0.003, boardH, 0.001);
-      const line = new THREE.Mesh(geo, gridMat);
-      line.position.set(BOARD_OFFSET_X + x * BLOCK_SIZE - BLOCK_SIZE / 2, cy, -BLOCK_SIZE * 0.48);
-      parentObj.add(line);
+    // Vertical edges
+    for (let x = 0; x <= PIT_W; x++) {
+      for (let z = 0; z <= PIT_D; z++) {
+        addLine(ox + x*BLOCK, oy, oz + z*BLOCK, ox + x*BLOCK, oy + h, oz + z*BLOCK);
+      }
     }
-    for (let y = 0; y <= ROWS; y++) {
-      const geo = new THREE.BoxGeometry(boardW, 0.003, 0.001);
-      const line = new THREE.Mesh(geo, gridMat);
-      line.position.set(cx, BOARD_OFFSET_Y + y * BLOCK_SIZE - BLOCK_SIZE / 2, -BLOCK_SIZE * 0.48);
-      parentObj.add(line);
+    // Horizontal edges (bottom and each layer)
+    for (let y = 0; y <= PIT_H; y++) {
+      for (let x = 0; x <= PIT_W; x++) {
+        addLine(ox + x*BLOCK, oy + y*BLOCK, oz, ox + x*BLOCK, oy + y*BLOCK, oz + d);
+      }
+      for (let z = 0; z <= PIT_D; z++) {
+        addLine(ox, oy + y*BLOCK, oz + z*BLOCK, ox + w, oy + y*BLOCK, oz + z*BLOCK);
+      }
     }
+
+    // Semi-transparent floor
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x112244, transparent: true, opacity: 0.3 });
+    const floorGeo = new THREE.BoxGeometry(w, 0.02, d);
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.position.set(ox + w/2, oy - 0.01, oz + d/2);
+    parentObj.add(floor);
+
+    // Glow edges at bottom corners
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0x0099ff, transparent: true, opacity: 0.5 });
+    const edgeGeo = new THREE.BoxGeometry(0.02, h, 0.02);
+    const corners = [[0,0],[PIT_W,0],[0,PIT_D],[PIT_W,PIT_D]];
+    corners.forEach(([cx,cz]) => {
+      const edge = new THREE.Mesh(edgeGeo, glowMat);
+      edge.position.set(ox + cx*BLOCK, oy + h/2, oz + cz*BLOCK);
+      parentObj.add(edge);
+    });
   },
 
   buildStars: function (parentObj, THREE) {
     const starGeo = new THREE.SphereGeometry(0.015, 4, 4);
     const starMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    for (let i = 0; i < 150; i++) {
+    for (let i = 0; i < 120; i++) {
       const star = new THREE.Mesh(starGeo, starMat);
       star.position.set(
-        (Math.random() - 0.5) * 20,
-        Math.random() * 10 - 2,
-        -5 - Math.random() * 15
+        (Math.random() - 0.5) * 25,
+        Math.random() * 12 - 2,
+        -6 - Math.random() * 15
       );
       const s = 0.5 + Math.random() * 1.5;
       star.scale.set(s, s, s);
@@ -383,109 +455,101 @@ AFRAME.registerComponent('tetris-game', {
     }
   },
 
+  // Convert game coords to world position
+  toWorld: function(gx, gy, gz) {
+    const ox = -(PIT_W * BLOCK) / 2 + BLOCK / 2;
+    const oz = -(PIT_D * BLOCK) / 2 + BLOCK / 2;
+    return {
+      x: ox + gx * BLOCK,
+      y: gy * BLOCK + BLOCK / 2,
+      z: oz + gz * BLOCK
+    };
+  },
+
   tick: function (time) {
     if (!this.gameReady) return;
 
-    // Game tick - drop piece
+    // Drop piece
     if (!gameOver) {
       if (time - lastDrop > dropInterval) {
         lastDrop = time;
-        if (!movePiece(0, 1)) {
-          lockPiece();
+        if (!dropPiece3D()) {
+          lockPiece3D();
         }
       }
     }
 
-    // --- Render board blocks ---
-    let meshIdx = 0;
-    for (let y = 0; y < ROWS; y++) {
-      for (let x = 0; x < COLS; x++) {
-        if (board[y][x] !== null && meshIdx < this.boardMeshes.length) {
-          const m = this.boardMeshes[meshIdx];
-          m.position.set(
-            BOARD_OFFSET_X + x * BLOCK_SIZE,
-            BOARD_OFFSET_Y + (ROWS - 1 - y) * BLOCK_SIZE,
-            0
-          );
-          m.material.color.setHex(board[y][x]);
-          m.material.opacity = 1;
-          m.material.transparent = false;
-          m.visible = true;
-          meshIdx++;
+    // --- Render pit blocks ---
+    let idx = 0;
+    for (let y = 0; y < PIT_H; y++) {
+      for (let z = 0; z < PIT_D; z++) {
+        for (let x = 0; x < PIT_W; x++) {
+          if (pit[y][z][x] !== null && idx < this.pitMeshes.length) {
+            const m = this.pitMeshes[idx];
+            const w = this.toWorld(x, y, z);
+            m.position.set(w.x, w.y, w.z);
+            m.material.color.setHex(pit[y][z][x]);
+            m.visible = true;
+            idx++;
+          }
         }
       }
     }
-    // Hide unused board meshes
-    for (let i = meshIdx; i < this.boardMeshes.length; i++) {
-      this.boardMeshes[i].visible = false;
-    }
+    for (let i = idx; i < this.pitMeshes.length; i++) this.pitMeshes[i].visible = false;
 
     // --- Render current piece ---
-    if (currentPiece && !gameOver) {
-      const piece = PIECES[currentPiece];
-      for (let i = 0; i < 4; i++) {
-        if (i < currentRotation.length) {
-          const [bx, by] = currentRotation[i];
-          const x = currentX + bx;
-          const y = currentY + by;
-          const m = this.currentMeshes[i];
-          if (y >= 0) {
-            m.position.set(
-              BOARD_OFFSET_X + x * BLOCK_SIZE,
-              BOARD_OFFSET_Y + (ROWS - 1 - y) * BLOCK_SIZE,
-              0
-            );
-            m.material.color.setHex(piece.color);
-            m.visible = true;
-          } else {
-            m.visible = false;
-          }
+    if (curPiece !== null && !gameOver) {
+      const piece = PIECES_3D[curPiece];
+      for (let i = 0; i < 5; i++) {
+        if (i < curBlocks.length) {
+          const [bx, by, bz] = curBlocks[i];
+          const w = this.toWorld(curX + bx, curY + by, curZ + bz);
+          const m = this.curMeshes[i];
+          m.position.set(w.x, w.y, w.z);
+          m.material.color.setHex(piece.color);
+          m.material.emissive.setHex(piece.color);
+          m.visible = true;
         } else {
-          this.currentMeshes[i].visible = false;
+          this.curMeshes[i].visible = false;
         }
       }
 
-      // --- Render ghost piece ---
-      const ghostY = getGhostY();
-      for (let i = 0; i < 4; i++) {
-        if (i < currentRotation.length) {
-          const [bx, by] = currentRotation[i];
-          const x = currentX + bx;
-          const y = ghostY + by;
+      // Ghost
+      const ghostY = getGhostY3D();
+      for (let i = 0; i < 5; i++) {
+        if (i < curBlocks.length) {
+          const [bx, by, bz] = curBlocks[i];
+          const w = this.toWorld(curX + bx, ghostY + by, curZ + bz);
           const m = this.ghostMeshes[i];
-          if (y >= 0) {
-            m.position.set(
-              BOARD_OFFSET_X + x * BLOCK_SIZE,
-              BOARD_OFFSET_Y + (ROWS - 1 - y) * BLOCK_SIZE,
-              0
-            );
-            m.material.color.setHex(piece.color);
-            m.visible = true;
-          } else {
-            m.visible = false;
-          }
+          m.position.set(w.x, w.y, w.z);
+          m.material.color.setHex(piece.color);
+          m.visible = true;
         } else {
           this.ghostMeshes[i].visible = false;
         }
       }
     } else {
-      for (let i = 0; i < 4; i++) {
-        this.currentMeshes[i].visible = false;
+      for (let i = 0; i < 5; i++) {
+        this.curMeshes[i].visible = false;
         this.ghostMeshes[i].visible = false;
       }
     }
 
     // --- Render next piece ---
-    if (nextPieceKey) {
-      const np = PIECES[nextPieceKey];
-      for (let i = 0; i < 4; i++) {
-        if (i < np.shape.length) {
-          const [bx, by] = np.shape[i];
+    if (nextPieceIdx !== null) {
+      const np = PIECES_3D[nextPieceIdx];
+      // Show it floating to the side
+      const previewOX = (PIT_W * BLOCK) / 2 + BLOCK * 2.5;
+      const previewOY = PIT_H * BLOCK * 0.7;
+      const previewOZ = 0;
+      for (let i = 0; i < 5; i++) {
+        if (i < np.blocks.length) {
+          const [bx, by, bz] = np.blocks[i];
           const m = this.nextMeshes[i];
           m.position.set(
-            this.nextOffsetX + bx * BLOCK_SIZE - BLOCK_SIZE,
-            this.nextOffsetY - by * BLOCK_SIZE + BLOCK_SIZE,
-            0
+            previewOX + bx * BLOCK,
+            previewOY + by * BLOCK,
+            previewOZ + bz * BLOCK
           );
           m.material.color.setHex(np.color);
           m.visible = true;
@@ -498,7 +562,7 @@ AFRAME.registerComponent('tetris-game', {
 });
 
 // ============================================================
-// INPUT HANDLING
+// KEYBOARD INPUT
 // ============================================================
 
 const keyState = {};
@@ -507,126 +571,143 @@ const keyTimers = {};
 document.addEventListener('keydown', (e) => {
   if (keyState[e.code]) return;
   keyState[e.code] = true;
-  handleInput(e.code);
-  if (['ArrowLeft', 'ArrowRight', 'ArrowDown'].includes(e.code)) {
+  handleKey(e.code);
+  if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code)) {
     keyTimers[e.code] = setTimeout(() => {
-      keyTimers[e.code + '_interval'] = setInterval(() => handleInput(e.code), 60);
-    }, 170);
+      keyTimers[e.code + '_i'] = setInterval(() => handleKey(e.code), 80);
+    }, 200);
   }
 });
 
 document.addEventListener('keyup', (e) => {
   keyState[e.code] = false;
   clearTimeout(keyTimers[e.code]);
-  clearInterval(keyTimers[e.code + '_interval']);
+  clearInterval(keyTimers[e.code + '_i']);
 });
 
-function handleInput(code) {
+function handleKey(code) {
   switch(code) {
-    case 'ArrowLeft': movePiece(-1, 0); break;
-    case 'ArrowRight': movePiece(1, 0); break;
-    case 'ArrowDown': movePiece(0, 1); score += 1; updateHUD(); break;
-    case 'ArrowUp': rotatePiece(1); break;
-    case 'KeyZ': rotatePiece(-1); break;
-    case 'KeyX': rotatePiece(1); break;
-    case 'Space': hardDrop(); break;
+    case 'ArrowLeft':  movePiece3D(-1, 0); break;
+    case 'ArrowRight': movePiece3D(1, 0); break;
+    case 'ArrowUp':    movePiece3D(0, -1); break;
+    case 'ArrowDown':  movePiece3D(0, 1); break;
+    case 'KeyQ': rotatePiece3D(0); break; // X axis
+    case 'KeyE': rotatePiece3D(0); break;
+    case 'KeyW': rotatePiece3D(2); break; // Z axis
+    case 'KeyS': rotatePiece3D(2); break;
+    case 'KeyA': rotatePiece3D(1); break; // Y axis
+    case 'KeyD': rotatePiece3D(1); break;
+    case 'Space': hardDrop3D(); break;
     case 'KeyR': if (gameOver) restartGame(); break;
+    case 'Tab':
+      e && e.preventDefault && e.preventDefault();
+      rotateAxis = (rotateAxis + 1) % 3;
+      updateAxisDisplay();
+      break;
   }
 }
 
-// VR Controller support with wrist-twist rotation
-AFRAME.registerComponent('vr-controls', {
+// ============================================================
+// VR CONTROLLER - Wrist twist for rotation
+// ============================================================
+
+AFRAME.registerComponent('vr-blockout-controls', {
   schema: { hand: { type: 'string' } },
 
   init: function() {
     const el = this.el;
     this.thumbstickCooldown = 0;
 
-    // --- Wrist twist tracking ---
-    // We track the controller's Z-axis rotation (roll).
-    // When you twist your wrist clockwise past the threshold -> rotate piece CW
-    // When you twist counter-clockwise -> rotate piece CCW
-    this.neutralRoll = null;       // calibrated "resting" roll angle
-    this.lastTwistDir = 0;         // -1, 0, or 1 — prevents repeat triggers
-    this.twistThreshold = 35;      // degrees of twist needed to trigger rotation
-    this.twistResetZone = 15;      // must return within this many degrees of neutral to re-trigger
+    // Wrist twist tracking
+    this.neutralRoll = null;
+    this.neutralPitch = null;
+    this.lastTwistDir = 0;
+    this.twistThreshold = 30;
+    this.twistResetZone = 12;
     this.calibrated = false;
     this.calibrateTimer = 0;
 
-    // Thumbstick for movement (not rotation anymore)
+    // Thumbstick = move piece in XZ plane
     el.addEventListener('thumbstickmoved', (evt) => {
       const now = Date.now();
       if (now < this.thumbstickCooldown) return;
-      if (evt.detail.x < -0.5) { movePiece(-1, 0); this.thumbstickCooldown = now + 150; }
-      else if (evt.detail.x > 0.5) { movePiece(1, 0); this.thumbstickCooldown = now + 150; }
-      if (evt.detail.y > 0.5) { movePiece(0, 1); score += 1; updateHUD(); this.thumbstickCooldown = now + 100; }
-      else if (evt.detail.y < -0.5) { hardDrop(); this.thumbstickCooldown = now + 400; }
+      if (evt.detail.x < -0.5) { movePiece3D(-1, 0); this.thumbstickCooldown = now + 150; }
+      else if (evt.detail.x > 0.5) { movePiece3D(1, 0); this.thumbstickCooldown = now + 150; }
+      if (evt.detail.y > 0.5) { movePiece3D(0, 1); this.thumbstickCooldown = now + 150; }
+      else if (evt.detail.y < -0.5) { movePiece3D(0, -1); this.thumbstickCooldown = now + 150; }
     });
 
-    // Buttons: A/B still work as fallback rotation
-    el.addEventListener('abuttondown', () => rotatePiece(1));
-    el.addEventListener('xbuttondown', () => rotatePiece(-1));
-    el.addEventListener('bbuttondown', () => rotatePiece(-1));
-    el.addEventListener('ybuttondown', () => rotatePiece(1));
-    el.addEventListener('triggerdown', () => hardDrop());
-    el.addEventListener('gripdown', () => { if (gameOver) restartGame(); });
+    // A/X buttons = cycle rotation axis
+    el.addEventListener('abuttondown', () => {
+      rotateAxis = (rotateAxis + 1) % 3;
+      updateAxisDisplay();
+    });
+    el.addEventListener('xbuttondown', () => {
+      rotateAxis = (rotateAxis + 1) % 3;
+      updateAxisDisplay();
+    });
+
+    // B/Y = manual rotate (fallback)
+    el.addEventListener('bbuttondown', () => rotatePiece3D(rotateAxis));
+    el.addEventListener('ybuttondown', () => rotatePiece3D(rotateAxis));
+
+    // Trigger = hard drop
+    el.addEventListener('triggerdown', () => hardDrop3D());
+
+    // Grip = restart (when game over) or cycle axis (during game)
+    el.addEventListener('gripdown', () => {
+      if (gameOver) restartGame();
+      else {
+        rotateAxis = (rotateAxis + 1) % 3;
+        updateAxisDisplay();
+      }
+    });
   },
 
   tick: function() {
-    const el = this.el;
-    const obj = el.object3D;
-
-    // Only process wrist twist for the right hand (primary)
-    // Left hand also works if you prefer
+    const obj = this.el.object3D;
     if (!obj || gameOver) return;
 
-    // Get the controller's euler rotation
-    const euler = obj.rotation; // { x, y, z } in radians
+    const euler = obj.rotation;
     const rollDeg = THREE.MathUtils.radToDeg(euler.z);
 
-    // Calibrate: set "neutral" to wherever the hand is pointing
-    // after a short delay (lets the controller settle)
     if (!this.calibrated) {
       this.calibrateTimer++;
-      if (this.calibrateTimer > 60) { // ~1 second at 60fps
+      if (this.calibrateTimer > 60) {
         this.neutralRoll = rollDeg;
         this.calibrated = true;
       }
       return;
     }
 
-    // Calculate twist offset from neutral position
     let twist = rollDeg - this.neutralRoll;
-    // Normalize to -180..180
     while (twist > 180) twist -= 360;
     while (twist < -180) twist += 360;
 
-    // Check if we've twisted past the threshold
     if (twist > this.twistThreshold && this.lastTwistDir !== 1) {
-      // Clockwise twist -> rotate piece CW
-      rotatePiece(1);
+      rotatePiece3D(rotateAxis);
       this.lastTwistDir = 1;
-      this.pulseHaptic(el);
+      this.pulseHaptic();
     } else if (twist < -this.twistThreshold && this.lastTwistDir !== -1) {
-      // Counter-clockwise twist -> rotate piece CCW
-      rotatePiece(-1);
+      // Rotate the other way — we call rotate 3 times = 270° = -90°
+      rotatePiece3D(rotateAxis);
+      rotatePiece3D(rotateAxis);
+      rotatePiece3D(rotateAxis);
       this.lastTwistDir = -1;
-      this.pulseHaptic(el);
+      this.pulseHaptic();
     }
 
-    // Reset trigger zone — must bring wrist back near neutral before next rotation
     if (Math.abs(twist) < this.twistResetZone) {
       this.lastTwistDir = 0;
     }
   },
 
-  pulseHaptic: function(el) {
-    // Vibrate the controller briefly for feedback
-    const trackedControls = el.components['tracked-controls'];
-    if (trackedControls && trackedControls.controller && trackedControls.controller.gamepad) {
-      const gamepad = trackedControls.controller.gamepad;
-      if (gamepad.hapticActuators && gamepad.hapticActuators[0]) {
-        gamepad.hapticActuators[0].pulse(0.6, 80);
+  pulseHaptic: function() {
+    const tc = this.el.components['tracked-controls'];
+    if (tc && tc.controller && tc.controller.gamepad) {
+      const gp = tc.controller.gamepad;
+      if (gp.hapticActuators && gp.hapticActuators[0]) {
+        gp.hapticActuators[0].pulse(0.6, 80);
       }
     }
   }
