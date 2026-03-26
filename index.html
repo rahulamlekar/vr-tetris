@@ -58,9 +58,9 @@
               rotation="-30 0 0" fov="80"></a-camera>
   </a-entity>
 
-  <!-- VR Controllers -->
-  <a-entity id="left-hand" hand-controls="hand: left; handModelStyle: lowPoly" vr-blockout-controls="hand: left"></a-entity>
-  <a-entity id="right-hand" hand-controls="hand: right; handModelStyle: lowPoly" vr-blockout-controls="hand: right"></a-entity>
+  <!-- VR Controllers (invisible, input only) -->
+  <a-entity id="left-hand" oculus-touch-controls="hand: left; model: false" vr-blockout-controls="hand: left"></a-entity>
+  <a-entity id="right-hand" oculus-touch-controls="hand: right; model: false" vr-blockout-controls="hand: right"></a-entity>
 
   <!-- Game container -->
   <a-entity id="game-container" position="0 0 0"></a-entity>
