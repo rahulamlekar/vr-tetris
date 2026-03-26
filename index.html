@@ -390,8 +390,8 @@ AFRAME.registerComponent('blockout-game', {
 
     // === NEXT piece label on the RIGHT side above the pit ===
     const rightHud = document.createElement('a-entity');
-    const rightX = (PIT_W * BLOCK) / 2 + 0.6;
-    rightHud.setAttribute('position', `${rightX} ${topOfPit} 0`);
+    const rightX = (PIT_W * BLOCK) / 2 + 1.2;
+    rightHud.setAttribute('position', `${rightX} ${topOfPit} 0.5`);
 
     const nt = document.createElement('a-text');
     nt.setAttribute('id', 'vr-next-label');
@@ -605,24 +605,25 @@ AFRAME.registerComponent('blockout-game', {
       }
     }
 
-    // --- Next piece (behind pit, right side of HUD at eye level) ---
+    // --- Next piece preview: shown from Z-axis (top-down view, tilted toward camera) ---
+    // Pieces are flat on XZ, so we map X->screen X, Z->screen Y to show the shape
     if (nextPieceIdx !== null) {
       const np = PIECES[nextPieceIdx];
-      const nOX = (PIT_W * BLOCK) / 2 + 0.6;  // right side, matching HUD
-      const nOY = PIT_H * BLOCK + 0.3;  // top of pit, below NEXT label
-      const behindZ = 0;  // same Z plane as pit center
-      const nOZ = behindZ;
-      // Center the preview piece
+      const nOX = (PIT_W * BLOCK) / 2 + 1.2;  // well to the right of the grid
+      const nOY = PIT_H * BLOCK - 0.1;         // just below top of pit
+      const nOZ = 0.5;                          // slightly toward camera
       const pMaxX = Math.max(...np.blocks.map(b => b[0]));
       const pMaxZ = Math.max(...np.blocks.map(b => b[2]));
+      const scale = BLOCK * 0.7;
       for (let i = 0; i < 5; i++) {
         if (i < np.blocks.length) {
           const [bx, by, bz] = np.blocks[i];
           const m = this.nextMeshes[i];
+          // Map: piece X -> world X, piece Z -> world Y (so we see the top-down shape)
           m.position.set(
-            nOX + (bx - pMaxX/2) * BLOCK * 0.7,
-            nOY + by * BLOCK * 0.7,
-            nOZ + (bz - pMaxZ/2) * BLOCK * 0.7
+            nOX + (bx - pMaxX / 2) * scale,
+            nOY - (bz - pMaxZ / 2) * scale,
+            nOZ
           );
           m.material.color.setHex(np.color); m.material.emissive.setHex(np.color);
           m.material.emissiveIntensity = 0.3; m.visible = true;
