@@ -37,8 +37,8 @@
 </div>
 
 <div id="controls-info">
-  <b>Desktop:</b> Arrows = Move | Q/E = Rotate X | W/S = Rotate Z | A/D = Rotate Y | Space = Drop<br>
-  <b>VR:</b> Thumbstick = Move | Twist Wrist = Rotate | Trigger = Drop | Grip = Change Axis
+  <b>Desktop:</b> Arrows = Move | Z/X = Spin | Space = Drop<br>
+  <b>VR:</b> Thumbstick = Move | Twist Wrist = Spin | Trigger = Drop
 </div>
 
 <div id="game-over-screen">
@@ -49,10 +49,10 @@
 <a-scene vr-mode-ui="enabled: true" renderer="antialias: true; colorManagement: true" blockout-game>
   <a-sky color="#040410"></a-sky>
   <a-entity light="type: ambient; color: #556; intensity: 0.4"></a-entity>
-  <a-entity light="type: point; color: #fff; intensity: 0.6" position="0 8 0"></a-entity>
+  <a-entity light="type: point; color: #fff; intensity: 0.7" position="0 8 0"></a-entity>
   <a-entity light="type: point; color: #48f; intensity: 0.4" position="0 2 0"></a-entity>
 
-  <!-- Camera rig: starts on the floor of the pit, looking up -->
+  <!-- Camera: on the floor of the pit looking up -->
   <a-entity id="rig" position="0 0.3 0" pit-camera>
     <a-camera wasd-controls-enabled="false" look-controls="pointerLockEnabled: false"
               rotation="-70 0 0" fov="90"></a-camera>
@@ -68,7 +68,11 @@
 
 <script>
 // ============================================================
-// 3D BLOCKOUT ENGINE
+// SIMPLIFIED 3D BLOCKOUT
+// - All flat pieces (no vertical dimension)
+// - Y-axis spin only (like spinning a top)
+// - Big bright floor footprint + laser drop guides
+// - 5x5 pit, slower start
 // ============================================================
 
 const PIT_W = 5;
@@ -76,7 +80,8 @@ const PIT_D = 5;
 const PIT_H = 12;
 const BLOCK = 0.4;
 
-const PIECES_3D = [
+// All flat pieces — y is always 0, shapes are on the XZ plane
+const PIECES = [
   { name: 'I3',  blocks: [[0,0,0],[1,0,0],[2,0,0]], color: 0x00ffff },
   { name: 'I4',  blocks: [[0,0,0],[1,0,0],[2,0,0],[3,0,0]], color: 0x00ccff },
   { name: 'L',   blocks: [[0,0,0],[1,0,0],[2,0,0],[2,0,1]], color: 0xff8800 },
@@ -85,20 +90,17 @@ const PIECES_3D = [
   { name: 'Z',   blocks: [[0,0,0],[1,0,0],[1,0,1],[2,0,1]], color: 0xff0000 },
   { name: 'T',   blocks: [[0,0,0],[1,0,0],[2,0,0],[1,0,1]], color: 0xaa00ff },
   { name: 'O',   blocks: [[0,0,0],[1,0,0],[0,0,1],[1,0,1]], color: 0xffff00 },
-  { name: 'L3D', blocks: [[0,0,0],[1,0,0],[1,1,0]], color: 0xff4488 },
-  { name: 'S3D', blocks: [[0,0,0],[0,1,0],[1,1,0]], color: 0x44ff88 },
-  { name: 'T3D', blocks: [[0,0,0],[1,0,0],[0,1,0],[0,0,1]], color: 0x8844ff },
-  { name: 'I2',  blocks: [[0,0,0],[0,1,0]], color: 0x88ffff },
   { name: 'Dot', blocks: [[0,0,0]], color: 0xffffff },
+  { name: 'I2',  blocks: [[0,0,0],[1,0,0]], color: 0x88ffff },
+  { name: 'Plus', blocks: [[1,0,0],[0,0,1],[1,0,1],[2,0,1],[1,0,2]], color: 0xff44ff },
 ];
 
 let pit = [];
 let curPiece = null, curBlocks = [], curX = 0, curY = 0, curZ = 0;
 let nextPieceIdx = null;
 let score = 0, layersCleared = 0, level = 1;
-let gameOver = false, dropInterval = 1200, lastDrop = 0;
-let rotateAxis = 0;
-let highestBlock = 0; // track the highest occupied Y for camera
+let gameOver = false, dropInterval = 1800, lastDrop = 0;
+let highestBlock = 0;
 
 function initPit() {
   pit = [];
@@ -114,41 +116,34 @@ function updateHighestBlock() {
   for (let y = PIT_H - 1; y >= 0; y--) {
     for (let z = 0; z < PIT_D; z++) {
       for (let x = 0; x < PIT_W; x++) {
-        if (pit[y][z][x] !== null) { highestBlock = Math.max(highestBlock, y + 1); }
+        if (pit[y][z][x] !== null) highestBlock = Math.max(highestBlock, y + 1);
       }
     }
   }
 }
 
-function randomPieceIdx() { return Math.floor(Math.random() * PIECES_3D.length); }
+function randomPieceIdx() { return Math.floor(Math.random() * PIECES.length); }
 
-function rotateBlocksAxis(blocks, axis) {
-  return blocks.map(([x, y, z]) => {
-    if (axis === 0) return [x, -z, y];
-    if (axis === 1) return [z, y, -x];
-    return [-y, x, z];
-  });
+// Y-axis rotation only: spin on the XZ plane
+function spinBlocks(blocks) {
+  // Rotate 90° around Y: [x,0,z] -> [z,0,-x], then normalize
+  const spun = blocks.map(([x, y, z]) => [z, y, -x]);
+  const minX = Math.min(...spun.map(b => b[0]));
+  const minZ = Math.min(...spun.map(b => b[2]));
+  return spun.map(([x, y, z]) => [x - minX, y, z - minZ]);
 }
 
-function normalizeBlocks(blocks) {
-  const minX = Math.min(...blocks.map(b => b[0]));
-  const minY = Math.min(...blocks.map(b => b[1]));
-  const minZ = Math.min(...blocks.map(b => b[2]));
-  return blocks.map(([x, y, z]) => [x - minX, y - minY, z - minZ]);
-}
-
-function collides3D(blocks, ox, oy, oz) {
+function collides(blocks, ox, oy, oz) {
   for (const [bx, by, bz] of blocks) {
     const nx = ox + bx, ny = oy + by, nz = oz + bz;
-    if (nx < 0 || nx >= PIT_W || nz < 0 || nz >= PIT_D) return true;
-    if (ny < 0) return true;
+    if (nx < 0 || nx >= PIT_W || nz < 0 || nz >= PIT_D || ny < 0) return true;
     if (ny < PIT_H && pit[ny][nz][nx] !== null) return true;
   }
   return false;
 }
 
-function lockPiece3D() {
-  const piece = PIECES_3D[curPiece];
+function lockPiece() {
+  const piece = PIECES[curPiece];
   for (const [bx, by, bz] of curBlocks) {
     const x = curX + bx, y = curY + by, z = curZ + bz;
     if (y >= PIT_H) { triggerGameOver(); return; }
@@ -156,23 +151,21 @@ function lockPiece3D() {
   }
   clearLayers();
   updateHighestBlock();
-  spawnPiece3D();
+  spawnPiece();
 }
 
 function clearLayers() {
   let cleared = 0;
   for (let y = 0; y < PIT_H; y++) {
     let full = true;
-    outer: for (let z = 0; z < PIT_D; z++) {
-      for (let x = 0; x < PIT_W; x++) {
-        if (pit[y][z][x] === null) { full = false; break outer; }
-      }
-    }
+    for (let z = 0; z < PIT_D && full; z++)
+      for (let x = 0; x < PIT_W && full; x++)
+        if (pit[y][z][x] === null) full = false;
     if (full) {
       pit.splice(y, 1);
-      const emptyLayer = [];
-      for (let z = 0; z < PIT_D; z++) emptyLayer.push(Array(PIT_W).fill(null));
-      pit.push(emptyLayer);
+      const empty = [];
+      for (let z = 0; z < PIT_D; z++) empty.push(Array(PIT_W).fill(null));
+      pit.push(empty);
       cleared++; y--;
     }
   }
@@ -180,28 +173,25 @@ function clearLayers() {
     score += [0, 100, 300, 600, 1000][Math.min(cleared, 4)] * level;
     layersCleared += cleared;
     level = Math.floor(layersCleared / 5) + 1;
-    dropInterval = Math.max(200, 1200 - (level - 1) * 100);
+    dropInterval = Math.max(300, 1800 - (level - 1) * 150);
     updateHUD();
   }
 }
 
-function spawnPiece3D() {
+function spawnPiece() {
   curPiece = nextPieceIdx !== null ? nextPieceIdx : randomPieceIdx();
   nextPieceIdx = randomPieceIdx();
-  curBlocks = [...PIECES_3D[curPiece].blocks.map(b => [...b])];
+  curBlocks = PIECES[curPiece].blocks.map(b => [...b]);
   const maxX = Math.max(...curBlocks.map(b => b[0]));
   const maxZ = Math.max(...curBlocks.map(b => b[2]));
   curX = Math.floor((PIT_W - maxX - 1) / 2);
   curZ = Math.floor((PIT_D - maxZ - 1) / 2);
-  const maxBY = Math.max(...curBlocks.map(b => b[1]));
-  curY = PIT_H - 1 + maxBY;
+  // Spawn at the top of the pit — gravity pulls it down
+  curY = PIT_H - 1;
 
-  if (collides3D(curBlocks, curX, curY - 1, curZ) && curY <= PIT_H) {
-    let blocked = true;
-    for (let testY = curY; testY < curY + 4; testY++) {
-      if (!collides3D(curBlocks, curX, testY, curZ)) { blocked = false; curY = testY; break; }
-    }
-    if (blocked) triggerGameOver();
+  // If it collides at the top, game over
+  if (collides(curBlocks, curX, curY, curZ)) {
+    triggerGameOver();
   }
 }
 
@@ -213,42 +203,44 @@ function triggerGameOver() {
 function restartGame() {
   initPit();
   score = 0; layersCleared = 0; level = 1;
-  dropInterval = 1200; gameOver = false;
+  dropInterval = 1800; gameOver = false;
   document.getElementById('game-over-screen').style.display = 'none';
-  updateHUD(); spawnPiece3D();
+  updateHUD(); spawnPiece();
 }
 
-function movePiece3D(dx, dz) {
+function movePiece(dx, dz) {
   if (gameOver) return false;
-  if (!collides3D(curBlocks, curX + dx, curY, curZ + dz)) { curX += dx; curZ += dz; return true; }
+  if (!collides(curBlocks, curX + dx, curY, curZ + dz)) { curX += dx; curZ += dz; return true; }
   return false;
 }
 
-function dropPiece3D() {
+function dropOne() {
   if (gameOver) return false;
-  if (!collides3D(curBlocks, curX, curY - 1, curZ)) { curY--; return true; }
+  if (!collides(curBlocks, curX, curY - 1, curZ)) { curY--; return true; }
   return false;
 }
 
-function rotatePiece3D(axis) {
+function spinPiece(dir) {
   if (gameOver) return;
-  let newBlocks = normalizeBlocks(rotateBlocksAxis(curBlocks, axis));
-  for (const [kx, kz] of [[0,0],[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]]) {
-    if (!collides3D(newBlocks, curX + kx, curY, curZ + kz)) {
+  let newBlocks = curBlocks;
+  const spins = dir > 0 ? 1 : 3;
+  for (let i = 0; i < spins; i++) newBlocks = spinBlocks(newBlocks);
+  for (const [kx, kz] of [[0,0],[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1]]) {
+    if (!collides(newBlocks, curX + kx, curY, curZ + kz)) {
       curBlocks = newBlocks; curX += kx; curZ += kz; return;
     }
   }
 }
 
-function hardDrop3D() {
+function hardDrop() {
   if (gameOver) return;
-  while (!collides3D(curBlocks, curX, curY - 1, curZ)) { curY--; score += 2; }
-  updateHUD(); lockPiece3D();
+  while (!collides(curBlocks, curX, curY - 1, curZ)) { curY--; score += 2; }
+  updateHUD(); lockPiece();
 }
 
-function getGhostY3D() {
+function getGhostY() {
   let gy = curY;
-  while (!collides3D(curBlocks, curX, gy - 1, curZ)) gy--;
+  while (!collides(curBlocks, curX, gy - 1, curZ)) gy--;
   return gy;
 }
 
@@ -258,25 +250,15 @@ function updateHUD() {
   document.getElementById('level').textContent = level;
 }
 
-function updateAxisDisplay() {
-  // Updated in VR HUD text below
-}
-
 // ============================================================
-// PIT CAMERA - rides up with the blocks
+// CAMERA - rises with the stack
 // ============================================================
 
 AFRAME.registerComponent('pit-camera', {
-  init: function() {
-    this.targetY = 0.3;
-    this.currentY = 0.3;
-  },
+  init: function() { this.currentY = 0.3; },
   tick: function() {
-    // Camera sits at the height of the highest block + a small offset
-    // So you're always looking up from the "surface" of the stack
-    this.targetY = highestBlock * BLOCK + 0.3;
-    // Smooth lerp
-    this.currentY += (this.targetY - this.currentY) * 0.05;
+    const targetY = highestBlock * BLOCK + 0.3;
+    this.currentY += (targetY - this.currentY) * 0.05;
     this.el.object3D.position.y = this.currentY;
   }
 });
@@ -297,11 +279,9 @@ AFRAME.registerComponent('blockout-game', {
 
   setupGame: function (parentObj) {
     const THREE = AFRAME.THREE;
-    const blockGeo = new THREE.BoxGeometry(BLOCK * 0.9, BLOCK * 0.9, BLOCK * 0.9);
     this.THREE = THREE;
     this.parentObj = parentObj;
-
-    // --- Pre-allocate meshes ---
+    const blockGeo = new THREE.BoxGeometry(BLOCK * 0.9, BLOCK * 0.9, BLOCK * 0.9);
 
     // Pit blocks
     this.pitMeshes = [];
@@ -313,7 +293,7 @@ AFRAME.registerComponent('blockout-game', {
       this.pitMeshes.push(mesh);
     }
 
-    // Current piece (5 blocks max, with glow)
+    // Current piece (max 5 blocks, glowing)
     this.curMeshes = [];
     for (let i = 0; i < 5; i++) {
       const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.2, roughness: 0.3, emissive: 0xffffff, emissiveIntensity: 0.4 });
@@ -323,7 +303,7 @@ AFRAME.registerComponent('blockout-game', {
       this.curMeshes.push(mesh);
     }
 
-    // Ghost piece (where it lands)
+    // Ghost (landing position)
     this.ghostMeshes = [];
     for (let i = 0; i < 5; i++) {
       const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.15 });
@@ -333,42 +313,50 @@ AFRAME.registerComponent('blockout-game', {
       this.ghostMeshes.push(mesh);
     }
 
-    // Shadow projections on X-wall (back wall, z = -PIT_D/2 side)
-    // These are flat quads on the wall showing the silhouette
-    const shadowGeo = new THREE.PlaneGeometry(BLOCK * 0.85, BLOCK * 0.85);
-
-    this.xWallShadows = []; // projected onto the back Z wall (shows X,Y)
+    // *** FLOOR FOOTPRINT — bright solid squares on the floor ***
+    this.floorPrints = [];
+    const fpGeo = new THREE.PlaneGeometry(BLOCK * 0.88, BLOCK * 0.88);
     for (let i = 0; i < 5; i++) {
-      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25, side: THREE.DoubleSide });
-      const mesh = new THREE.Mesh(shadowGeo, mat);
-      mesh.visible = false;
-      parentObj.add(mesh);
-      this.xWallShadows.push(mesh);
-    }
-
-    this.zWallShadows = []; // projected onto the left X wall (shows Z,Y)
-    for (let i = 0; i < 5; i++) {
-      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25, side: THREE.DoubleSide });
-      const mesh = new THREE.Mesh(shadowGeo, mat);
-      mesh.visible = false;
-      mesh.rotation.y = Math.PI / 2;
-      parentObj.add(mesh);
-      this.zWallShadows.push(mesh);
-    }
-
-    // Floor shadow (top-down projection showing X,Z)
-    this.floorShadows = [];
-    const floorShadowGeo = new THREE.PlaneGeometry(BLOCK * 0.85, BLOCK * 0.85);
-    for (let i = 0; i < 5; i++) {
-      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.2, side: THREE.DoubleSide });
-      const mesh = new THREE.Mesh(floorShadowGeo, mat);
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+      const mesh = new THREE.Mesh(fpGeo, mat);
       mesh.rotation.x = -Math.PI / 2;
       mesh.visible = false;
       parentObj.add(mesh);
-      this.floorShadows.push(mesh);
+      this.floorPrints.push(mesh);
     }
 
-    // Next piece preview (floating above near a wall)
+    // *** LASER DROP GUIDES — vertical lines from piece to landing ***
+    this.laserGuides = [];
+    for (let i = 0; i < 5; i++) {
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.12 });
+      // Thin tall box as the laser beam (height updated per frame)
+      const geo = new THREE.BoxGeometry(BLOCK * 0.05, 1, BLOCK * 0.05);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.visible = false;
+      parentObj.add(mesh);
+      this.laserGuides.push(mesh);
+    }
+
+    // Wall shadow projections
+    this.backWallShadows = [];
+    this.leftWallShadows = [];
+    const shadowGeo = new THREE.PlaneGeometry(BLOCK * 0.85, BLOCK * 0.85);
+    for (let i = 0; i < 5; i++) {
+      const mat1 = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.2, side: THREE.DoubleSide });
+      const m1 = new THREE.Mesh(shadowGeo, mat1);
+      m1.visible = false;
+      parentObj.add(m1);
+      this.backWallShadows.push(m1);
+
+      const mat2 = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.2, side: THREE.DoubleSide });
+      const m2 = new THREE.Mesh(shadowGeo, mat2);
+      m2.rotation.y = Math.PI / 2;
+      m2.visible = false;
+      parentObj.add(m2);
+      this.leftWallShadows.push(m2);
+    }
+
+    // Next piece preview
     this.nextMeshes = [];
     for (let i = 0; i < 5; i++) {
       const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.3, roughness: 0.4, emissive: 0x000000, emissiveIntensity: 0.2 });
@@ -378,48 +366,38 @@ AFRAME.registerComponent('blockout-game', {
       this.nextMeshes.push(mesh);
     }
 
-    // --- Build pit ---
     this.buildPit(parentObj, THREE);
     this.buildStars(parentObj, THREE);
-
-    // --- VR HUD text entities (created as Three.js to stay in world) ---
-    // We'll use A-Frame text entities attached to the scene
     this.createVRHud();
 
-    // Start game
     initPit();
-    spawnPiece3D();
+    spawnPiece();
     updateHUD();
     this.gameReady = true;
   },
 
   createVRHud: function() {
-    // Attach text to the outside of the pit wall
     const hud = document.createElement('a-entity');
     const wallX = -(PIT_W * BLOCK) / 2 - 0.15;
     const wallZ = -(PIT_D * BLOCK) / 2 + BLOCK;
     hud.setAttribute('position', `${wallX} 1.2 ${wallZ}`);
     hud.setAttribute('rotation', '0 90 0');
 
-    const addText = (id, val, yOff, color, width) => {
+    const texts = [
+      ['vr-title', 'BLOCKOUT', 1.4, '#0ff', '3'],
+      ['vr-score', 'Score: 0', 1.0, '#0ff', '2'],
+      ['vr-layers', 'Layers: 0', 0.8, '#0ff', '2'],
+      ['vr-level', 'Level: 1', 0.6, '#0ff', '2'],
+      ['vr-next-label', 'NEXT:', 0.2, '#888', '1.5'],
+    ];
+    texts.forEach(([id, val, y, color, w]) => {
       const t = document.createElement('a-text');
-      t.setAttribute('id', id);
-      t.setAttribute('value', val);
-      t.setAttribute('position', `0 ${yOff} 0`);
-      t.setAttribute('color', color);
-      t.setAttribute('width', width || '2');
-      t.setAttribute('font', 'monoid');
-      t.setAttribute('side', 'double');
+      t.setAttribute('id', id); t.setAttribute('value', val);
+      t.setAttribute('position', `0 ${y} 0`);
+      t.setAttribute('color', color); t.setAttribute('width', w);
+      t.setAttribute('font', 'monoid'); t.setAttribute('side', 'double');
       hud.appendChild(t);
-    };
-
-    addText('vr-title', 'BLOCKOUT', 1.4, '#0ff', '3');
-    addText('vr-score', 'Score: 0', 1.0, '#0ff', '2');
-    addText('vr-layers', 'Layers: 0', 0.8, '#0ff', '2');
-    addText('vr-level', 'Level: 1', 0.6, '#0ff', '2');
-    addText('vr-axis', 'Axis: X', 0.3, '#ff0', '1.8');
-    addText('vr-next-label', 'NEXT:', 0.0, '#888', '1.5');
-
+    });
     this.el.appendChild(hud);
   },
 
@@ -427,7 +405,6 @@ AFRAME.registerComponent('blockout-game', {
     const w = PIT_W * BLOCK, d = PIT_D * BLOCK, h = PIT_H * BLOCK;
     const ox = -w/2, oz = -d/2, oy = 0;
 
-    // Wireframe lines
     const edgeMat = new THREE.LineBasicMaterial({ color: 0x2244aa, transparent: true, opacity: 0.35 });
     const addLine = (x1,y1,z1, x2,y2,z2) => {
       const geo = new THREE.BufferGeometry().setFromPoints([
@@ -436,14 +413,12 @@ AFRAME.registerComponent('blockout-game', {
       parentObj.add(new THREE.Line(geo, edgeMat));
     };
 
-    // Only draw outer edges + layer lines (less clutter from inside)
-    // Vertical corner edges
-    const corners = [[0,0],[PIT_W,0],[0,PIT_D],[PIT_W,PIT_D]];
-    corners.forEach(([cx,cz]) => {
+    // Corner verticals
+    [[0,0],[PIT_W,0],[0,PIT_D],[PIT_W,PIT_D]].forEach(([cx,cz]) => {
       addLine(ox+cx*BLOCK, oy, oz+cz*BLOCK, ox+cx*BLOCK, oy+h, oz+cz*BLOCK);
     });
 
-    // Horizontal edges at each layer (outer frame only)
+    // Horizontal frame at each layer
     for (let y = 0; y <= PIT_H; y++) {
       const ly = oy + y * BLOCK;
       addLine(ox, ly, oz, ox+w, ly, oz);
@@ -452,39 +427,32 @@ AFRAME.registerComponent('blockout-game', {
       addLine(ox+w, ly, oz, ox+w, ly, oz+d);
     }
 
-    // Vertical edges along the walls (inner grid)
+    // Inner wall grid lines (subtle)
+    const innerMat = new THREE.LineBasicMaterial({ color: 0x1a2a55, transparent: true, opacity: 0.15 });
     for (let x = 1; x < PIT_W; x++) {
-      const innerMat = new THREE.LineBasicMaterial({ color: 0x1a2a55, transparent: true, opacity: 0.2 });
-      // On the back and front walls
-      const g1 = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(ox+x*BLOCK, oy, oz), new THREE.Vector3(ox+x*BLOCK, oy+h, oz)
-      ]);
-      parentObj.add(new THREE.Line(g1, innerMat));
-      const g2 = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(ox+x*BLOCK, oy, oz+d), new THREE.Vector3(ox+x*BLOCK, oy+h, oz+d)
-      ]);
-      parentObj.add(new THREE.Line(g2, innerMat));
+      [oz, oz+d].forEach(zz => {
+        const g = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(ox+x*BLOCK, oy, zz), new THREE.Vector3(ox+x*BLOCK, oy+h, zz)
+        ]);
+        parentObj.add(new THREE.Line(g, innerMat));
+      });
     }
     for (let z = 1; z < PIT_D; z++) {
-      const innerMat = new THREE.LineBasicMaterial({ color: 0x1a2a55, transparent: true, opacity: 0.2 });
-      const g1 = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(ox, oy, oz+z*BLOCK), new THREE.Vector3(ox, oy+h, oz+z*BLOCK)
-      ]);
-      parentObj.add(new THREE.Line(g1, innerMat));
-      const g2 = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(ox+w, oy, oz+z*BLOCK), new THREE.Vector3(ox+w, oy+h, oz+z*BLOCK)
-      ]);
-      parentObj.add(new THREE.Line(g2, innerMat));
+      [ox, ox+w].forEach(xx => {
+        const g = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(xx, oy, oz+z*BLOCK), new THREE.Vector3(xx, oy+h, oz+z*BLOCK)
+        ]);
+        parentObj.add(new THREE.Line(g, innerMat));
+      });
     }
 
-    // Floor with grid
+    // Floor
     const floorMat = new THREE.MeshStandardMaterial({ color: 0x0a1530, transparent: true, opacity: 0.6 });
-    const floorGeo = new THREE.BoxGeometry(w, 0.02, d);
-    const floor = new THREE.Mesh(floorGeo, floorMat);
-    floor.position.set(ox + w/2, oy - 0.01, oz + d/2);
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(w, 0.02, d), floorMat);
+    floor.position.set(ox + w/2, -0.01, oz + d/2);
     parentObj.add(floor);
 
-    // Floor grid lines
+    // Floor grid
     const floorLineMat = new THREE.LineBasicMaterial({ color: 0x3355aa, transparent: true, opacity: 0.4 });
     for (let x = 0; x <= PIT_W; x++) {
       const g = new THREE.BufferGeometry().setFromPoints([
@@ -502,31 +470,24 @@ AFRAME.registerComponent('blockout-game', {
     // Glowing corner pillars
     const glowMat = new THREE.MeshBasicMaterial({ color: 0x0088ff, transparent: true, opacity: 0.4 });
     const pillarGeo = new THREE.BoxGeometry(0.03, h, 0.03);
-    corners.forEach(([cx,cz]) => {
-      const pillar = new THREE.Mesh(pillarGeo, glowMat);
-      pillar.position.set(ox + cx*BLOCK, oy + h/2, oz + cz*BLOCK);
-      parentObj.add(pillar);
+    [[0,0],[PIT_W,0],[0,PIT_D],[PIT_W,PIT_D]].forEach(([cx,cz]) => {
+      const p = new THREE.Mesh(pillarGeo, glowMat);
+      p.position.set(ox + cx*BLOCK, oy + h/2, oz + cz*BLOCK);
+      parentObj.add(p);
     });
 
-    // Semi-transparent walls (very subtle, so you can see shadows on them)
+    // Subtle walls for shadow visibility
     const wallMat = new THREE.MeshBasicMaterial({ color: 0x0a1030, transparent: true, opacity: 0.08, side: THREE.DoubleSide });
-
-    // Back wall (Z = oz, shows X/Y shadows)
-    const backGeo = new THREE.PlaneGeometry(w, h);
-    const backWall = new THREE.Mesh(backGeo, wallMat);
+    const backWall = new THREE.Mesh(new THREE.PlaneGeometry(w, h), wallMat);
     backWall.position.set(ox + w/2, oy + h/2, oz);
     parentObj.add(backWall);
-
-    // Left wall (X = ox, shows Z/Y shadows)
-    const leftGeo = new THREE.PlaneGeometry(d, h);
-    const leftWall = new THREE.Mesh(leftGeo, wallMat);
+    const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(d, h), wallMat);
     leftWall.rotation.y = Math.PI / 2;
     leftWall.position.set(ox, oy + h/2, oz + d/2);
     parentObj.add(leftWall);
   },
 
   buildStars: function (parentObj, THREE) {
-    // Stars visible when looking up through the top of the pit
     const starGeo = new THREE.SphereGeometry(0.02, 4, 4);
     const starMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     for (let i = 0; i < 200; i++) {
@@ -536,26 +497,26 @@ AFRAME.registerComponent('blockout-game', {
         PIT_H * BLOCK + 2 + Math.random() * 20,
         (Math.random() - 0.5) * 15
       );
-      const s = 0.3 + Math.random() * 1;
-      star.scale.set(s, s, s);
+      star.scale.setScalar(0.3 + Math.random());
       parentObj.add(star);
     }
   },
 
   toWorld: function(gx, gy, gz) {
-    const ox = -(PIT_W * BLOCK) / 2 + BLOCK / 2;
-    const oz = -(PIT_D * BLOCK) / 2 + BLOCK / 2;
-    return { x: ox + gx * BLOCK, y: gy * BLOCK + BLOCK / 2, z: oz + gz * BLOCK };
+    return {
+      x: -(PIT_W * BLOCK) / 2 + BLOCK / 2 + gx * BLOCK,
+      y: gy * BLOCK + BLOCK / 2,
+      z: -(PIT_D * BLOCK) / 2 + BLOCK / 2 + gz * BLOCK
+    };
   },
 
   tick: function (time) {
     if (!this.gameReady) return;
 
-    // Drop
     if (!gameOver) {
       if (time - lastDrop > dropInterval) {
         lastDrop = time;
-        if (!dropPiece3D()) lockPiece3D();
+        if (!dropOne()) lockPiece();
       }
     }
 
@@ -580,145 +541,136 @@ AFRAME.registerComponent('blockout-game', {
     }
     for (let i = idx; i < this.pitMeshes.length; i++) this.pitMeshes[i].visible = false;
 
-    // --- Current piece + shadows ---
+    // --- Current piece + all guides ---
     if (curPiece !== null && !gameOver) {
-      const piece = PIECES_3D[curPiece];
-      const ghostY = getGhostY3D();
+      const piece = PIECES[curPiece];
+      const ghostY = getGhostY();
 
       for (let i = 0; i < 5; i++) {
         if (i < curBlocks.length) {
           const [bx, by, bz] = curBlocks[i];
+          const wx = curX + bx, wz = curZ + bz;
 
-          // Current piece
-          const w = this.toWorld(curX + bx, curY + by, curZ + bz);
+          // Current piece (glowing)
+          const w = this.toWorld(wx, curY + by, wz);
           const m = this.curMeshes[i];
           m.position.set(w.x, w.y, w.z);
           m.material.color.setHex(piece.color);
           m.material.emissive.setHex(piece.color);
           m.visible = true;
 
-          // Ghost at landing position
-          const gw = this.toWorld(curX + bx, ghostY + by, curZ + bz);
-          const gm = this.ghostMeshes[i];
-          gm.position.set(gw.x, gw.y, gw.z);
-          gm.material.color.setHex(piece.color);
-          gm.visible = true;
+          // Ghost at landing
+          const gw = this.toWorld(wx, ghostY + by, wz);
+          this.ghostMeshes[i].position.set(gw.x, gw.y, gw.z);
+          this.ghostMeshes[i].material.color.setHex(piece.color);
+          this.ghostMeshes[i].visible = true;
 
-          // Shadow on back wall (Z wall) — project X,Y position onto z=pitOZ
-          const sw = this.xWallShadows[i];
-          sw.position.set(w.x, gw.y, pitOZ - 0.01);
-          sw.material.color.setHex(piece.color);
-          sw.visible = true;
+          // *** FLOOR FOOTPRINT — bright colored square on ground ***
+          const fp = this.floorPrints[i];
+          fp.position.set(w.x, 0.02, w.z);
+          fp.material.color.setHex(piece.color);
+          fp.visible = true;
 
-          // Shadow on left wall (X wall) — project Z,Y position onto x=pitOX
-          const szw = this.zWallShadows[i];
-          szw.position.set(pitOX - 0.01, gw.y, w.z);
-          szw.material.color.setHex(piece.color);
-          szw.visible = true;
+          // *** LASER GUIDE — vertical beam from piece to ghost ***
+          const lg = this.laserGuides[i];
+          const laserH = Math.max(0.01, (curY - ghostY) * BLOCK);
+          const laserMidY = (gw.y + w.y) / 2;
+          lg.scale.set(1, laserH, 1);
+          lg.position.set(w.x, laserMidY, w.z);
+          lg.material.color.setHex(piece.color);
+          lg.visible = curY !== ghostY;
 
-          // Floor shadow — project X,Z onto y=0
-          const fs = this.floorShadows[i];
-          fs.position.set(w.x, 0.01, w.z);
-          fs.material.color.setHex(piece.color);
-          fs.visible = true;
+          // Wall shadows (at ghost/landing height)
+          this.backWallShadows[i].position.set(w.x, gw.y, pitOZ - 0.01);
+          this.backWallShadows[i].material.color.setHex(piece.color);
+          this.backWallShadows[i].visible = true;
+
+          this.leftWallShadows[i].position.set(pitOX - 0.01, gw.y, w.z);
+          this.leftWallShadows[i].material.color.setHex(piece.color);
+          this.leftWallShadows[i].visible = true;
 
         } else {
           this.curMeshes[i].visible = false;
           this.ghostMeshes[i].visible = false;
-          this.xWallShadows[i].visible = false;
-          this.zWallShadows[i].visible = false;
-          this.floorShadows[i].visible = false;
+          this.floorPrints[i].visible = false;
+          this.laserGuides[i].visible = false;
+          this.backWallShadows[i].visible = false;
+          this.leftWallShadows[i].visible = false;
         }
       }
     } else {
       for (let i = 0; i < 5; i++) {
         this.curMeshes[i].visible = false;
         this.ghostMeshes[i].visible = false;
-        this.xWallShadows[i].visible = false;
-        this.zWallShadows[i].visible = false;
-        this.floorShadows[i].visible = false;
+        this.floorPrints[i].visible = false;
+        this.laserGuides[i].visible = false;
+        this.backWallShadows[i].visible = false;
+        this.leftWallShadows[i].visible = false;
       }
     }
 
-    // --- Next piece (floating near the HUD wall) ---
+    // --- Next piece ---
     if (nextPieceIdx !== null) {
-      const np = PIECES_3D[nextPieceIdx];
+      const np = PIECES[nextPieceIdx];
       const nOX = -(PIT_W * BLOCK) / 2 - 0.15;
-      const nOY = 0.5;
+      const nOY = 0.3;
       const nOZ = -(PIT_D * BLOCK) / 2 + BLOCK * 2;
       for (let i = 0; i < 5; i++) {
         if (i < np.blocks.length) {
           const [bx, by, bz] = np.blocks[i];
           const m = this.nextMeshes[i];
           m.position.set(nOX - bz * BLOCK * 0.6, nOY + by * BLOCK * 0.6, nOZ + bx * BLOCK * 0.6);
-          m.material.color.setHex(np.color);
-          m.material.emissive.setHex(np.color);
-          m.material.emissiveIntensity = 0.2;
-          m.visible = true;
-        } else {
-          this.nextMeshes[i].visible = false;
-        }
+          m.material.color.setHex(np.color); m.material.emissive.setHex(np.color);
+          m.material.emissiveIntensity = 0.2; m.visible = true;
+        } else { this.nextMeshes[i].visible = false; }
       }
     }
 
-    // --- Update VR HUD text ---
+    // VR HUD
     const vs = document.getElementById('vr-score');
     const vl = document.getElementById('vr-layers');
     const vlv = document.getElementById('vr-level');
-    const va = document.getElementById('vr-axis');
     if (vs) vs.setAttribute('value', 'Score: ' + score);
     if (vl) vl.setAttribute('value', 'Layers: ' + layersCleared);
     if (vlv) vlv.setAttribute('value', 'Level: ' + level);
-    if (va) va.setAttribute('value', 'Axis: ' + ['X','Y','Z'][rotateAxis]);
   }
 });
 
 // ============================================================
-// KEYBOARD INPUT
+// KEYBOARD
 // ============================================================
 
 const keyState = {}, keyTimers = {};
-
 document.addEventListener('keydown', (e) => {
   if (keyState[e.code]) return;
   keyState[e.code] = true;
-  handleKey(e.code, e);
+  handleKey(e.code);
   if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code)) {
     keyTimers[e.code] = setTimeout(() => {
       keyTimers[e.code + '_i'] = setInterval(() => handleKey(e.code), 80);
     }, 200);
   }
 });
-
 document.addEventListener('keyup', (e) => {
   keyState[e.code] = false;
-  clearTimeout(keyTimers[e.code]);
-  clearInterval(keyTimers[e.code + '_i']);
+  clearTimeout(keyTimers[e.code]); clearInterval(keyTimers[e.code + '_i']);
 });
 
-function handleKey(code, e) {
+function handleKey(code) {
   switch(code) {
-    case 'ArrowLeft':  movePiece3D(-1, 0); break;
-    case 'ArrowRight': movePiece3D(1, 0); break;
-    case 'ArrowUp':    movePiece3D(0, -1); break;
-    case 'ArrowDown':  movePiece3D(0, 1); break;
-    case 'KeyQ': rotatePiece3D(0); break;
-    case 'KeyE': rotatePiece3D(0); break;
-    case 'KeyW': rotatePiece3D(2); break;
-    case 'KeyS': rotatePiece3D(2); break;
-    case 'KeyA': rotatePiece3D(1); break;
-    case 'KeyD': rotatePiece3D(1); break;
-    case 'Space': hardDrop3D(); break;
+    case 'ArrowLeft':  movePiece(-1, 0); break;
+    case 'ArrowRight': movePiece(1, 0); break;
+    case 'ArrowUp':    movePiece(0, -1); break;
+    case 'ArrowDown':  movePiece(0, 1); break;
+    case 'KeyZ': spinPiece(-1); break;
+    case 'KeyX': spinPiece(1); break;
+    case 'Space': hardDrop(); break;
     case 'KeyR': if (gameOver) restartGame(); break;
-    case 'Tab':
-      if (e) e.preventDefault();
-      rotateAxis = (rotateAxis + 1) % 3;
-      break;
   }
 }
 
 // ============================================================
-// VR CONTROLLERS
+// VR CONTROLLERS — simplified: twist = spin, that's it
 // ============================================================
 
 AFRAME.registerComponent('vr-blockout-controls', {
@@ -737,21 +689,19 @@ AFRAME.registerComponent('vr-blockout-controls', {
     el.addEventListener('thumbstickmoved', (evt) => {
       const now = Date.now();
       if (now < this.thumbstickCooldown) return;
-      if (evt.detail.x < -0.5) { movePiece3D(-1, 0); this.thumbstickCooldown = now + 150; }
-      else if (evt.detail.x > 0.5) { movePiece3D(1, 0); this.thumbstickCooldown = now + 150; }
-      if (evt.detail.y > 0.5) { movePiece3D(0, 1); this.thumbstickCooldown = now + 150; }
-      else if (evt.detail.y < -0.5) { movePiece3D(0, -1); this.thumbstickCooldown = now + 150; }
+      if (evt.detail.x < -0.5) { movePiece(-1, 0); this.thumbstickCooldown = now + 150; }
+      else if (evt.detail.x > 0.5) { movePiece(1, 0); this.thumbstickCooldown = now + 150; }
+      if (evt.detail.y > 0.5) { movePiece(0, 1); this.thumbstickCooldown = now + 150; }
+      else if (evt.detail.y < -0.5) { movePiece(0, -1); this.thumbstickCooldown = now + 150; }
     });
 
-    el.addEventListener('abuttondown', () => { rotateAxis = (rotateAxis + 1) % 3; });
-    el.addEventListener('xbuttondown', () => { rotateAxis = (rotateAxis + 1) % 3; });
-    el.addEventListener('bbuttondown', () => rotatePiece3D(rotateAxis));
-    el.addEventListener('ybuttondown', () => rotatePiece3D(rotateAxis));
-    el.addEventListener('triggerdown', () => hardDrop3D());
-    el.addEventListener('gripdown', () => {
-      if (gameOver) restartGame();
-      else { rotateAxis = (rotateAxis + 1) % 3; }
-    });
+    // All face buttons = spin (simple!)
+    el.addEventListener('abuttondown', () => spinPiece(1));
+    el.addEventListener('bbuttondown', () => spinPiece(-1));
+    el.addEventListener('xbuttondown', () => spinPiece(1));
+    el.addEventListener('ybuttondown', () => spinPiece(-1));
+    el.addEventListener('triggerdown', () => hardDrop());
+    el.addEventListener('gripdown', () => { if (gameOver) restartGame(); });
   },
 
   tick: function() {
@@ -771,23 +721,17 @@ AFRAME.registerComponent('vr-blockout-controls', {
     while (twist < -180) twist += 360;
 
     if (twist > this.twistThreshold && this.lastTwistDir !== 1) {
-      rotatePiece3D(rotateAxis);
-      this.lastTwistDir = 1;
-      this.pulseHaptic();
+      spinPiece(1); this.lastTwistDir = 1; this.pulseHaptic();
     } else if (twist < -this.twistThreshold && this.lastTwistDir !== -1) {
-      rotatePiece3D(rotateAxis); rotatePiece3D(rotateAxis); rotatePiece3D(rotateAxis);
-      this.lastTwistDir = -1;
-      this.pulseHaptic();
+      spinPiece(-1); this.lastTwistDir = -1; this.pulseHaptic();
     }
-
     if (Math.abs(twist) < this.twistResetZone) this.lastTwistDir = 0;
   },
 
   pulseHaptic: function() {
     const tc = this.el.components['tracked-controls'];
-    if (tc?.controller?.gamepad?.hapticActuators?.[0]) {
+    if (tc?.controller?.gamepad?.hapticActuators?.[0])
       tc.controller.gamepad.hapticActuators[0].pulse(0.6, 80);
-    }
   }
 });
 </script>
