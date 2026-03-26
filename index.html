@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VR Tetris - Quest 3</title>
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; background: #000; }
+    #hud {
+      position: fixed; top: 20px; left: 20px; z-index: 999;
+      color: #0ff; font-family: 'Courier New', monospace; font-size: 18px;
+      text-shadow: 0 0 10px #0ff;
+      pointer-events: none;
+    }
+    #hud h2 { margin: 0 0 5px 0; font-size: 24px; }
+    #controls-info {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      z-index: 999; color: #fff; font-family: 'Courier New', monospace;
+      font-size: 14px; text-align: center; opacity: 0.7;
+      pointer-events: none;
+    }
+    #game-over-screen {
+      display: none; position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%); z-index: 1000;
+      color: #f00; font-family: 'Courier New', monospace;
+      font-size: 48px; text-align: center;
+      text-shadow: 0 0 20px #f00;
+    }
+    #game-over-screen .restart-hint {
+      font-size: 18px; color: #fff; margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="hud">
+  <h2>VR TETRIS</h2>
+  <div>Score: <span id="score">0</span></div>
+  <div>Lines: <span id="lines">0</span></div>
+  <div>Level: <span id="level">1</span></div>
+</div>
+
+<div id="controls-info">
+  <b>Desktop:</b> Arrow Keys = Move | Z/X = Rotate | Space = Drop<br>
+  <b>VR Controllers:</b> Thumbstick = Move | A/X = Rotate | Trigger = Drop
+</div>
+
+<div id="game-over-screen">
+  GAME OVER
+  <div class="restart-hint">Press R or Grip button to restart</div>
+</div>
+
+<a-scene vr-mode-ui="enabled: true" renderer="antialias: true; colorManagement: true">
+  <!-- Environment -->
+  <a-sky color="#0a0a1a"></a-sky>
+  <a-entity light="type: ambient; color: #334; intensity: 0.5"></a-entity>
+  <a-entity light="type: directional; color: #fff; intensity: 0.8" position="1 3 2"></a-entity>
+  <a-entity light="type: point; color: #08f; intensity: 0.6" position="-2 3 -3"></a-entity>
+
+  <!-- Stars -->
+  <a-entity id="stars"></a-entity>
+
+  <!-- Camera for desktop play -->
+  <a-entity id="rig" position="0 1.6 2">
+    <a-camera wasd-controls-enabled="false" look-controls="pointerLockEnabled: false">
+    </a-camera>
+  </a-entity>
+
+  <!-- VR Controllers -->
+  <a-entity id="left-hand" hand-controls="hand: left; handModelStyle: lowPoly" vr-controls="hand: left"></a-entity>
+  <a-entity id="right-hand" hand-controls="hand: right; handModelStyle: lowPoly" vr-controls="hand: right"></a-entity>
+
+  <!-- Game Board Container -->
+  <a-entity id="game-container" position="0 0.5 -1.5">
+    <!-- Board frame -->
+    <a-entity id="board-frame"></a-entity>
+    <!-- Tetris blocks go here -->
+    <a-entity id="board-blocks"></a-entity>
+    <!-- Current piece -->
+    <a-entity id="current-piece"></a-entity>
+    <!-- Ghost piece -->
+    <a-entity id="ghost-piece"></a-entity>
+    <!-- Next piece preview -->
+    <a-entity id="next-piece" position="1.8 1.5 0"></a-entity>
+    <!-- Score display in VR -->
+    <a-text id="vr-score" value="Score: 0" position="-1.8 2.2 0" color="#0ff" width="3" font="monoid"></a-text>
+    <a-text id="vr-lines" value="Lines: 0" position="-1.8 2.0 0" color="#0ff" width="2.5" font="monoid"></a-text>
+    <a-text id="vr-level" value="Level: 1" position="-1.8 1.8 0" color="#0ff" width="2.5" font="monoid"></a-text>
+    <a-text value="NEXT" position="1.8 2.2 0" color="#fff" width="2" align="center" font="monoid"></a-text>
+  </a-entity>
+</a-scene>
+
+<script>
+// ============================================================
+// TETRIS GAME ENGINE
+// ============================================================
+
+const COLS = 10;
+const ROWS = 20;
+const BLOCK_SIZE = 0.15;
+const BOARD_OFFSET_X = -(COLS * BLOCK_SIZE) / 2 + BLOCK_SIZE / 2;
+const BOARD_OFFSET_Y = 0;
+
+// Tetromino definitions
+const PIECES = {
+  I: { shape: [[0,0],[1,0],[2,0],[3,0]], color: '#0ff' },
+  O: { shape: [[0,0],[1,0],[0,1],[1,1]], color: '#ff0' },
+  T: { shape: [[0,0],[1,0],[2,0],[1,1]], color: '#a0f' },
+  S: { shape: [[1,0],[2,0],[0,1],[1,1]], color: '#0f0' },
+  Z: { shape: [[0,0],[1,0],[1,1],[2,1]], color: '#f00' },
+  J: { shape: [[0,0],[0,1],[1,1],[2,1]], color: '#00f' },
+  L: { shape: [[2,0],[0,1],[1,1],[2,1]], color: '#f80' }
+};
+const PIECE_KEYS = Object.keys(PIECES);
+
+// Game state
+let board = [];
+let currentPiece = null;
+let currentX = 0, currentY = 0;
+let currentRotation = [];
+let nextPieceKey = null;
+let score = 0;
+let lines = 0;
+let level = 1;
+let gameOver = false;
+let dropInterval = 1000;
+let lastDrop = 0;
+let blockEntities = {};
+let entityPool = [];
+
+// Initialize board
+function initBoard() {
+  board = [];
+  for (let y = 0; y < ROWS; y++) {
+    board[y] = [];
+    for (let x = 0; x < COLS; x++) {
+      board[y][x] = null;
+    }
+  }
+}
+
+// Random piece
+function randomPiece() {
+  return PIECE_KEYS[Math.floor(Math.random() * PIECE_KEYS.length)];
+}
+
+// Rotate piece shape
+function rotateShape(shape) {
+  const maxX = Math.max(...shape.map(b => b[0]));
+  const maxY = Math.max(...shape.map(b => b[1]));
+  return shape.map(([x, y]) => [maxY - y, x]);
+}
+
+// Check collision
+function collides(shape, offX, offY) {
+  for (const [bx, by] of shape) {
+    const nx = offX + bx;
+    const ny = offY + by;
+    if (nx < 0 || nx >= COLS || ny >= ROWS) return true;
+    if (ny >= 0 && board[ny][nx]) return true;
+  }
+  return false;
+}
+
+// Lock piece to board
+function lockPiece() {
+  const piece = PIECES[currentPiece];
+  for (const [bx, by] of currentRotation) {
+    const x = currentX + bx;
+    const y = currentY + by;
+    if (y < 0) {
+      triggerGameOver();
+      return;
+    }
+    board[y][x] = piece.color;
+  }
+  clearLines();
+  spawnPiece();
+}
+
+// Clear completed lines
+function clearLines() {
+  let cleared = 0;
+  for (let y = ROWS - 1; y >= 0; y--) {
+    if (board[y].every(cell => cell !== null)) {
+      board.splice(y, 1);
+      board.unshift(Array(COLS).fill(null));
+      cleared++;
+      y++;
+    }
+  }
+  if (cleared > 0) {
+    const points = [0, 100, 300, 500, 800];
+    score += (points[cleared] || 800) * level;
+    lines += cleared;
+    level = Math.floor(lines / 10) + 1;
+    dropInterval = Math.max(100, 1000 - (level - 1) * 80);
+    updateHUD();
+  }
+}
+
+// Spawn new piece
+function spawnPiece() {
+  currentPiece = nextPieceKey || randomPiece();
+  nextPieceKey = randomPiece();
+  currentRotation = [...PIECES[currentPiece].shape];
+  currentX = Math.floor(COLS / 2) - 1;
+  currentY = 0;
+
+  if (collides(currentRotation, currentX, currentY)) {
+    triggerGameOver();
+  }
+  renderNextPiece();
+}
+
+// Game over
+function triggerGameOver() {
+  gameOver = true;
+  document.getElementById('game-over-screen').style.display = 'block';
+}
+
+// Restart
+function restartGame() {
+  initBoard();
+  score = 0; lines = 0; level = 1;
+  dropInterval = 1000;
+  gameOver = false;
+  document.getElementById('game-over-screen').style.display = 'none';
+  // Clear all rendered blocks
+  Object.keys(blockEntities).forEach(id => recycleBlock(id));
+  updateHUD();
+  spawnPiece();
+}
+
+// Move piece
+function movePiece(dx, dy) {
+  if (gameOver) return false;
+  if (!collides(currentRotation, currentX + dx, currentY + dy)) {
+    currentX += dx;
+    currentY += dy;
+    return true;
+  }
+  return false;
+}
+
+// Rotate piece
+function rotatePiece(dir) {
+  if (gameOver) return;
+  let newShape = [...currentRotation];
+  const rotations = dir > 0 ? 1 : 3;
+  for (let i = 0; i < rotations; i++) {
+    newShape = rotateShape(newShape);
+  }
+  // Wall kick: try offsets
+  for (const kickX of [0, -1, 1, -2, 2]) {
+    if (!collides(newShape, currentX + kickX, currentY)) {
+      currentRotation = newShape;
+      currentX += kickX;
+      return;
+    }
+  }
+}
+
+// Hard drop
+function hardDrop() {
+  if (gameOver) return;
+  while (!collides(currentRotation, currentX, currentY + 1)) {
+    currentY++;
+    score += 2;
+  }
+  updateHUD();
+  lockPiece();
+}
+
+// Get ghost Y position
+function getGhostY() {
+  let gy = currentY;
+  while (!collides(currentRotation, currentX, gy + 1)) gy++;
+  return gy;
+}
+
+// Update HUD
+function updateHUD() {
+  document.getElementById('score').textContent = score;
+  document.getElementById('lines').textContent = lines;
+  document.getElementById('level').textContent = level;
+  const vs = document.getElementById('vr-score');
+  const vl = document.getElementById('vr-lines');
+  const vlv = document.getElementById('vr-level');
+  if (vs) vs.setAttribute('value', 'Score: ' + score);
+  if (vl) vl.setAttribute('value', 'Lines: ' + lines);
+  if (vlv) vlv.setAttribute('value', 'Level: ' + level);
+}
+
+// ============================================================
+// A-FRAME RENDERING
+// ============================================================
+
+function getOrCreateBlock(id, parent) {
+  if (blockEntities[id]) return blockEntities[id];
+
+  let el;
+  if (entityPool.length > 0) {
+    el = entityPool.pop();
+    parent.appendChild(el);
+  } else {
+    el = document.createElement('a-box');
+    el.setAttribute('width', BLOCK_SIZE * 0.92);
+    el.setAttribute('height', BLOCK_SIZE * 0.92);
+    el.setAttribute('depth', BLOCK_SIZE * 0.92);
+    el.setAttribute('material', 'metalness: 0.3; roughness: 0.4');
+    parent.appendChild(el);
+  }
+  el.setAttribute('visible', true);
+  blockEntities[id] = el;
+  return el;
+}
+
+function recycleBlock(id) {
+  const el = blockEntities[id];
+  if (el) {
+    el.setAttribute('visible', false);
+    if (el.parentNode) el.parentNode.removeChild(el);
+    entityPool.push(el);
+    delete blockEntities[id];
+  }
+}
+
+function renderBoard() {
+  const parent = document.getElementById('board-blocks');
+  const usedIds = new Set();
+
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      const id = `b_${x}_${y}`;
+      if (board[y][x]) {
+        usedIds.add(id);
+        const el = getOrCreateBlock(id, parent);
+        el.setAttribute('position', {
+          x: BOARD_OFFSET_X + x * BLOCK_SIZE,
+          y: BOARD_OFFSET_Y + (ROWS - 1 - y) * BLOCK_SIZE,
+          z: 0
+        });
+        el.setAttribute('color', board[y][x]);
+        el.setAttribute('opacity', 1);
+      }
+    }
+  }
+
+  Object.keys(blockEntities).forEach(id => {
+    if (id.startsWith('b_') && !usedIds.has(id)) recycleBlock(id);
+  });
+}
+
+function renderCurrentPiece() {
+  const parent = document.getElementById('current-piece');
+  const piece = PIECES[currentPiece];
+  if (!piece) return;
+
+  const usedIds = new Set();
+  currentRotation.forEach(([bx, by], i) => {
+    const id = `cp_${i}`;
+    usedIds.add(id);
+    const x = currentX + bx;
+    const y = currentY + by;
+    if (y >= 0) {
+      const el = getOrCreateBlock(id, parent);
+      el.setAttribute('position', {
+        x: BOARD_OFFSET_X + x * BLOCK_SIZE,
+        y: BOARD_OFFSET_Y + (ROWS - 1 - y) * BLOCK_SIZE,
+        z: 0
+      });
+      el.setAttribute('color', piece.color);
+      el.setAttribute('opacity', 1);
+    }
+  });
+
+  for (let i = 0; i < 4; i++) {
+    const id = `cp_${i}`;
+    if (!usedIds.has(id)) recycleBlock(id);
+  }
+}
+
+function renderGhostPiece() {
+  const parent = document.getElementById('ghost-piece');
+  const piece = PIECES[currentPiece];
+  if (!piece) return;
+
+  const ghostY = getGhostY();
+  currentRotation.forEach(([bx, by], i) => {
+    const id = `gp_${i}`;
+    const x = currentX + bx;
+    const y = ghostY + by;
+    if (y >= 0) {
+      const el = getOrCreateBlock(id, parent);
+      el.setAttribute('position', {
+        x: BOARD_OFFSET_X + x * BLOCK_SIZE,
+        y: BOARD_OFFSET_Y + (ROWS - 1 - y) * BLOCK_SIZE,
+        z: 0
+      });
+      el.setAttribute('color', piece.color);
+      el.setAttribute('opacity', 0.2);
+    }
+  });
+}
+
+function renderNextPiece() {
+  const parent = document.getElementById('next-piece');
+  for (let i = 0; i < 4; i++) recycleBlock(`np_${i}`);
+
+  const piece = PIECES[nextPieceKey];
+  if (!piece) return;
+
+  piece.shape.forEach(([bx, by], i) => {
+    const el = getOrCreateBlock(`np_${i}`, parent);
+    el.setAttribute('position', {
+      x: bx * BLOCK_SIZE - BLOCK_SIZE,
+      y: -by * BLOCK_SIZE + BLOCK_SIZE,
+      z: 0
+    });
+    el.setAttribute('color', piece.color);
+    el.setAttribute('opacity', 1);
+  });
+}
+
+// Build board frame
+function buildFrame() {
+  const frame = document.getElementById('board-frame');
+
+  // Left wall
+  const left = document.createElement('a-box');
+  left.setAttribute('width', BLOCK_SIZE * 0.3);
+  left.setAttribute('height', ROWS * BLOCK_SIZE + BLOCK_SIZE * 0.3);
+  left.setAttribute('depth', BLOCK_SIZE);
+  left.setAttribute('position', `${BOARD_OFFSET_X - BLOCK_SIZE * 0.65} ${BOARD_OFFSET_Y + (ROWS * BLOCK_SIZE) / 2 - BLOCK_SIZE / 2} 0`);
+  left.setAttribute('color', '#224');
+  left.setAttribute('material', 'metalness: 0.6; roughness: 0.2');
+  frame.appendChild(left);
+
+  // Right wall
+  const right = document.createElement('a-box');
+  right.setAttribute('width', BLOCK_SIZE * 0.3);
+  right.setAttribute('height', ROWS * BLOCK_SIZE + BLOCK_SIZE * 0.3);
+  right.setAttribute('depth', BLOCK_SIZE);
+  right.setAttribute('position', `${BOARD_OFFSET_X + COLS * BLOCK_SIZE - BLOCK_SIZE * 0.35} ${BOARD_OFFSET_Y + (ROWS * BLOCK_SIZE) / 2 - BLOCK_SIZE / 2} 0`);
+  right.setAttribute('color', '#224');
+  right.setAttribute('material', 'metalness: 0.6; roughness: 0.2');
+  frame.appendChild(right);
+
+  // Bottom wall
+  const bottom = document.createElement('a-box');
+  bottom.setAttribute('width', COLS * BLOCK_SIZE + BLOCK_SIZE * 0.6);
+  bottom.setAttribute('height', BLOCK_SIZE * 0.3);
+  bottom.setAttribute('depth', BLOCK_SIZE);
+  bottom.setAttribute('position', `${BOARD_OFFSET_X + (COLS * BLOCK_SIZE) / 2 - BLOCK_SIZE / 2} ${BOARD_OFFSET_Y - BLOCK_SIZE * 0.65} 0`);
+  bottom.setAttribute('color', '#224');
+  bottom.setAttribute('material', 'metalness: 0.6; roughness: 0.2');
+  frame.appendChild(bottom);
+
+  // Back panel
+  const back = document.createElement('a-box');
+  back.setAttribute('width', COLS * BLOCK_SIZE);
+  back.setAttribute('height', ROWS * BLOCK_SIZE);
+  back.setAttribute('depth', BLOCK_SIZE * 0.1);
+  back.setAttribute('position', `${BOARD_OFFSET_X + (COLS * BLOCK_SIZE) / 2 - BLOCK_SIZE / 2} ${BOARD_OFFSET_Y + (ROWS * BLOCK_SIZE) / 2 - BLOCK_SIZE / 2} ${-BLOCK_SIZE * 0.55}`);
+  back.setAttribute('color', '#112');
+  back.setAttribute('material', 'opacity: 0.3; transparent: true; metalness: 0.8; roughness: 0.1');
+  frame.appendChild(back);
+
+  // Grid lines
+  for (let x = 0; x <= COLS; x++) {
+    const line = document.createElement('a-box');
+    line.setAttribute('width', 0.003);
+    line.setAttribute('height', ROWS * BLOCK_SIZE);
+    line.setAttribute('depth', 0.001);
+    line.setAttribute('position', `${BOARD_OFFSET_X + x * BLOCK_SIZE - BLOCK_SIZE / 2} ${BOARD_OFFSET_Y + (ROWS * BLOCK_SIZE) / 2 - BLOCK_SIZE / 2} ${-BLOCK_SIZE * 0.48}`);
+    line.setAttribute('color', '#223');
+    frame.appendChild(line);
+  }
+  for (let y = 0; y <= ROWS; y++) {
+    const line = document.createElement('a-box');
+    line.setAttribute('width', COLS * BLOCK_SIZE);
+    line.setAttribute('height', 0.003);
+    line.setAttribute('depth', 0.001);
+    line.setAttribute('position', `${BOARD_OFFSET_X + (COLS * BLOCK_SIZE) / 2 - BLOCK_SIZE / 2} ${BOARD_OFFSET_Y + y * BLOCK_SIZE - BLOCK_SIZE / 2} ${-BLOCK_SIZE * 0.48}`);
+    line.setAttribute('color', '#223');
+    frame.appendChild(line);
+  }
+}
+
+// Create star field
+function createStars() {
+  const starsEl = document.getElementById('stars');
+  for (let i = 0; i < 200; i++) {
+    const star = document.createElement('a-sphere');
+    star.setAttribute('radius', 0.01 + Math.random() * 0.02);
+    star.setAttribute('position', `${(Math.random() - 0.5) * 20} ${Math.random() * 10} ${-5 - Math.random() * 15}`);
+    star.setAttribute('color', '#fff');
+    star.setAttribute('material', 'emissive: #fff; emissiveIntensity: 0.5');
+    starsEl.appendChild(star);
+  }
+}
+
+// ============================================================
+// INPUT HANDLING
+// ============================================================
+
+const keyState = {};
+const keyTimers = {};
+const keyRepeatDelay = 170;
+const keyRepeatRate = 60;
+
+document.addEventListener('keydown', (e) => {
+  if (keyState[e.code]) return;
+  keyState[e.code] = true;
+  handleInput(e.code);
+
+  if (['ArrowLeft', 'ArrowRight', 'ArrowDown'].includes(e.code)) {
+    keyTimers[e.code] = setTimeout(() => {
+      keyTimers[e.code + '_interval'] = setInterval(() => {
+        handleInput(e.code);
+      }, keyRepeatRate);
+    }, keyRepeatDelay);
+  }
+});
+
+document.addEventListener('keyup', (e) => {
+  keyState[e.code] = false;
+  clearTimeout(keyTimers[e.code]);
+  clearInterval(keyTimers[e.code + '_interval']);
+});
+
+function handleInput(code) {
+  switch(code) {
+    case 'ArrowLeft': movePiece(-1, 0); break;
+    case 'ArrowRight': movePiece(1, 0); break;
+    case 'ArrowDown': movePiece(0, 1); score += 1; updateHUD(); break;
+    case 'ArrowUp': rotatePiece(1); break;
+    case 'KeyZ': rotatePiece(-1); break;
+    case 'KeyX': rotatePiece(1); break;
+    case 'Space': hardDrop(); break;
+    case 'KeyR': if (gameOver) restartGame(); break;
+  }
+}
+
+// VR Controller support
+AFRAME.registerComponent('vr-controls', {
+  schema: { hand: { type: 'string' } },
+  init: function() {
+    const el = this.el;
+    this.thumbstickCooldown = 0;
+
+    el.addEventListener('thumbstickmoved', (evt) => {
+      const now = Date.now();
+      if (now < this.thumbstickCooldown) return;
+
+      if (evt.detail.x < -0.5) {
+        movePiece(-1, 0);
+        this.thumbstickCooldown = now + 150;
+      } else if (evt.detail.x > 0.5) {
+        movePiece(1, 0);
+        this.thumbstickCooldown = now + 150;
+      }
+      if (evt.detail.y > 0.5) {
+        movePiece(0, 1);
+        score += 1;
+        updateHUD();
+        this.thumbstickCooldown = now + 100;
+      } else if (evt.detail.y < -0.5) {
+        rotatePiece(1);
+        this.thumbstickCooldown = now + 250;
+      }
+    });
+
+    el.addEventListener('abuttondown', () => rotatePiece(1));
+    el.addEventListener('xbuttondown', () => rotatePiece(-1));
+    el.addEventListener('bbuttondown', () => rotatePiece(-1));
+    el.addEventListener('ybuttondown', () => rotatePiece(1));
+    el.addEventListener('triggerdown', () => hardDrop());
+    el.addEventListener('gripdown', () => { if (gameOver) restartGame(); });
+  }
+});
+
+// ============================================================
+// GAME LOOP
+// ============================================================
+
+function gameLoop(timestamp) {
+  requestAnimationFrame(gameLoop);
+  if (gameOver) return;
+
+  if (timestamp - lastDrop > dropInterval) {
+    lastDrop = timestamp;
+    if (!movePiece(0, 1)) {
+      lockPiece();
+    }
+  }
+
+  renderBoard();
+  renderCurrentPiece();
+  renderGhostPiece();
+}
+
+// ============================================================
+// INIT
+// ============================================================
+
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    createStars();
+    buildFrame();
+    initBoard();
+    spawnPiece();
+    updateHUD();
+    requestAnimationFrame(gameLoop);
+  }, 500);
+});
+</script>
+</body>
+</html>
