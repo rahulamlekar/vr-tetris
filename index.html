@@ -38,7 +38,7 @@
 
 <div id="controls-info">
   <b>Desktop:</b> Arrow Keys = Move | Z/X = Rotate | Space = Drop<br>
-  <b>VR Controllers:</b> Thumbstick = Move | A/X = Rotate | Trigger = Drop
+  <b>VR Controllers:</b> Thumbstick = Move | Twist Wrist = Rotate | Trigger = Drop
 </div>
 
 <div id="game-over-screen">
@@ -70,7 +70,7 @@
     <a-text id="vr-level" value="Level: 1" position="-1.6 2.1 0" color="#0ff" width="2.5" font="monoid"></a-text>
     <a-text value="NEXT" position="1.5 2.5 0" color="#fff" width="2" align="center" font="monoid"></a-text>
     <a-text id="vr-gameover" value="" position="0 1.5 0.3" color="#f00" width="6" align="center" font="monoid" visible="false"></a-text>
-    <a-text id="vr-controls-text" value="Thumbstick: Move\nA/X: Rotate\nTrigger: Drop" position="0 -0.3 0" color="#888" width="2" align="center" font="monoid"></a-text>
+    <a-text id="vr-controls-text" value="Thumbstick: Move\nTwist Wrist: Rotate\nTrigger: Drop" position="0 -0.3 0" color="#888" width="2" align="center" font="monoid"></a-text>
   </a-entity>
 </a-scene>
 
@@ -534,28 +534,101 @@ function handleInput(code) {
   }
 }
 
-// VR Controller support
+// VR Controller support with wrist-twist rotation
 AFRAME.registerComponent('vr-controls', {
   schema: { hand: { type: 'string' } },
+
   init: function() {
     const el = this.el;
     this.thumbstickCooldown = 0;
 
+    // --- Wrist twist tracking ---
+    // We track the controller's Z-axis rotation (roll).
+    // When you twist your wrist clockwise past the threshold -> rotate piece CW
+    // When you twist counter-clockwise -> rotate piece CCW
+    this.neutralRoll = null;       // calibrated "resting" roll angle
+    this.lastTwistDir = 0;         // -1, 0, or 1 — prevents repeat triggers
+    this.twistThreshold = 35;      // degrees of twist needed to trigger rotation
+    this.twistResetZone = 15;      // must return within this many degrees of neutral to re-trigger
+    this.calibrated = false;
+    this.calibrateTimer = 0;
+
+    // Thumbstick for movement (not rotation anymore)
     el.addEventListener('thumbstickmoved', (evt) => {
       const now = Date.now();
       if (now < this.thumbstickCooldown) return;
       if (evt.detail.x < -0.5) { movePiece(-1, 0); this.thumbstickCooldown = now + 150; }
       else if (evt.detail.x > 0.5) { movePiece(1, 0); this.thumbstickCooldown = now + 150; }
       if (evt.detail.y > 0.5) { movePiece(0, 1); score += 1; updateHUD(); this.thumbstickCooldown = now + 100; }
-      else if (evt.detail.y < -0.5) { rotatePiece(1); this.thumbstickCooldown = now + 250; }
+      else if (evt.detail.y < -0.5) { hardDrop(); this.thumbstickCooldown = now + 400; }
     });
 
+    // Buttons: A/B still work as fallback rotation
     el.addEventListener('abuttondown', () => rotatePiece(1));
     el.addEventListener('xbuttondown', () => rotatePiece(-1));
     el.addEventListener('bbuttondown', () => rotatePiece(-1));
     el.addEventListener('ybuttondown', () => rotatePiece(1));
     el.addEventListener('triggerdown', () => hardDrop());
     el.addEventListener('gripdown', () => { if (gameOver) restartGame(); });
+  },
+
+  tick: function() {
+    const el = this.el;
+    const obj = el.object3D;
+
+    // Only process wrist twist for the right hand (primary)
+    // Left hand also works if you prefer
+    if (!obj || gameOver) return;
+
+    // Get the controller's euler rotation
+    const euler = obj.rotation; // { x, y, z } in radians
+    const rollDeg = THREE.MathUtils.radToDeg(euler.z);
+
+    // Calibrate: set "neutral" to wherever the hand is pointing
+    // after a short delay (lets the controller settle)
+    if (!this.calibrated) {
+      this.calibrateTimer++;
+      if (this.calibrateTimer > 60) { // ~1 second at 60fps
+        this.neutralRoll = rollDeg;
+        this.calibrated = true;
+      }
+      return;
+    }
+
+    // Calculate twist offset from neutral position
+    let twist = rollDeg - this.neutralRoll;
+    // Normalize to -180..180
+    while (twist > 180) twist -= 360;
+    while (twist < -180) twist += 360;
+
+    // Check if we've twisted past the threshold
+    if (twist > this.twistThreshold && this.lastTwistDir !== 1) {
+      // Clockwise twist -> rotate piece CW
+      rotatePiece(1);
+      this.lastTwistDir = 1;
+      this.pulseHaptic(el);
+    } else if (twist < -this.twistThreshold && this.lastTwistDir !== -1) {
+      // Counter-clockwise twist -> rotate piece CCW
+      rotatePiece(-1);
+      this.lastTwistDir = -1;
+      this.pulseHaptic(el);
+    }
+
+    // Reset trigger zone — must bring wrist back near neutral before next rotation
+    if (Math.abs(twist) < this.twistResetZone) {
+      this.lastTwistDir = 0;
+    }
+  },
+
+  pulseHaptic: function(el) {
+    // Vibrate the controller briefly for feedback
+    const trackedControls = el.components['tracked-controls'];
+    if (trackedControls && trackedControls.controller && trackedControls.controller.gamepad) {
+      const gamepad = trackedControls.controller.gamepad;
+      if (gamepad.hapticActuators && gamepad.hapticActuators[0]) {
+        gamepad.hapticActuators[0].pulse(0.6, 80);
+      }
+    }
   }
 });
 </script>
