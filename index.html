@@ -71,7 +71,7 @@
 // SIMPLIFIED 3D BLOCKOUT
 // - All flat pieces (no vertical dimension)
 // - Y-axis spin only (like spinning a top)
-// - Big bright floor footprint + laser drop guides
+// - Big bright floor footprint + wall shadows
 // - 5x5 pit, slower start
 // ============================================================
 
@@ -323,18 +323,6 @@ AFRAME.registerComponent('blockout-game', {
       this.floorPrints.push(mesh);
     }
 
-    // *** LASER DROP GUIDES — vertical lines from piece to landing ***
-    this.laserGuides = [];
-    for (let i = 0; i < 5; i++) {
-      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.12 });
-      // Thin tall box as the laser beam (height updated per frame)
-      const geo = new THREE.BoxGeometry(BLOCK * 0.05, 1, BLOCK * 0.05);
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.visible = false;
-      parentObj.add(mesh);
-      this.laserGuides.push(mesh);
-    }
-
     // Wall shadow projections
     this.backWallShadows = [];
     this.leftWallShadows = [];
@@ -375,30 +363,47 @@ AFRAME.registerComponent('blockout-game', {
   },
 
   createVRHud: function() {
-    // HUD floats behind the far wall of the pit, visible through the transparent wall
-    const hud = document.createElement('a-entity');
-    const behindZ = -(PIT_D * BLOCK) / 2 - 0.3; // just behind far wall
-    const hudY = PIT_H * BLOCK * 0.55; // mid-height of the pit
-    hud.setAttribute('position', `0 ${hudY} ${behindZ}`);
-    hud.setAttribute('rotation', '0 0 0');
+    // HUD floats ABOVE the pit, between camera and pit, facing the player
+    const topOfPit = PIT_H * BLOCK + 0.3;
 
-    // Score/level on the left, next piece label on the right
-    const texts = [
-      ['vr-title', 'BLOCKOUT', 1.2, '#0ff', '3.5', '-1.5'],
-      ['vr-score', 'Score: 0', 0.8, '#0ff', '2.2', '-1.5'],
-      ['vr-layers', 'Layers: 0', 0.55, '#0ff', '2.2', '-1.5'],
-      ['vr-level', 'Level: 1', 0.3, '#0ff', '2.2', '-1.5'],
-      ['vr-next-label', 'NEXT', 1.0, '#888', '2', '1.3'],
+    // === Score/info on the LEFT side above the pit ===
+    const leftHud = document.createElement('a-entity');
+    const leftX = -(PIT_W * BLOCK) / 2 - 0.6;
+    leftHud.setAttribute('position', `${leftX} ${topOfPit} 0`);
+
+    const leftTexts = [
+      ['vr-title', 'BLOCKOUT', 0.5, '#0ff', '3'],
+      ['vr-score', 'Score: 0', 0.15, '#0ff', '2.5'],
+      ['vr-layers', 'Layers: 0', -0.1, '#0ff', '2.5'],
+      ['vr-level', 'Level: 1', -0.35, '#0ff', '2.5'],
     ];
-    texts.forEach(([id, val, y, color, w, x]) => {
+    leftTexts.forEach(([id, val, y, color, w]) => {
       const t = document.createElement('a-text');
       t.setAttribute('id', id); t.setAttribute('value', val);
-      t.setAttribute('position', `${x} ${y} 0`);
+      t.setAttribute('position', `0 ${y} 0`);
       t.setAttribute('color', color); t.setAttribute('width', w);
       t.setAttribute('font', 'monoid'); t.setAttribute('side', 'double');
-      hud.appendChild(t);
+      t.setAttribute('align', 'right');
+      leftHud.appendChild(t);
     });
-    this.el.appendChild(hud);
+    this.el.appendChild(leftHud);
+
+    // === NEXT piece label on the RIGHT side above the pit ===
+    const rightHud = document.createElement('a-entity');
+    const rightX = (PIT_W * BLOCK) / 2 + 0.6;
+    rightHud.setAttribute('position', `${rightX} ${topOfPit} 0`);
+
+    const nt = document.createElement('a-text');
+    nt.setAttribute('id', 'vr-next-label');
+    nt.setAttribute('value', 'NEXT');
+    nt.setAttribute('position', '0 0.5 0');
+    nt.setAttribute('color', '#888');
+    nt.setAttribute('width', '2.5');
+    nt.setAttribute('font', 'monoid');
+    nt.setAttribute('side', 'double');
+    nt.setAttribute('align', 'left');
+    rightHud.appendChild(nt);
+    this.el.appendChild(rightHud);
   },
 
   buildPit: function (parentObj, THREE) {
@@ -476,14 +481,11 @@ AFRAME.registerComponent('blockout-game', {
       parentObj.add(p);
     });
 
-    // Back wall — slightly darker to make HUD text readable through it
-    const backWallMat = new THREE.MeshBasicMaterial({ color: 0x080818, transparent: true, opacity: 0.25, side: THREE.DoubleSide });
-    const backWall = new THREE.Mesh(new THREE.PlaneGeometry(w + 3.5, h + 1.5), backWallMat);
-    backWall.position.set(ox + w/2, oy + h/2, oz - 0.01);
-    parentObj.add(backWall);
-
-    // Side walls subtle
+    // Subtle walls for shadow visibility
     const wallMat = new THREE.MeshBasicMaterial({ color: 0x0a1030, transparent: true, opacity: 0.08, side: THREE.DoubleSide });
+    const backWall = new THREE.Mesh(new THREE.PlaneGeometry(w, h), wallMat);
+    backWall.position.set(ox + w/2, oy + h/2, oz);
+    parentObj.add(backWall);
     const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(d, h), wallMat);
     leftWall.rotation.y = Math.PI / 2;
     leftWall.position.set(ox, oy + h/2, oz + d/2);
@@ -574,15 +576,6 @@ AFRAME.registerComponent('blockout-game', {
           fp.material.color.setHex(piece.color);
           fp.visible = true;
 
-          // *** LASER GUIDE — vertical beam from piece to ghost ***
-          const lg = this.laserGuides[i];
-          const laserH = Math.max(0.01, (curY - ghostY) * BLOCK);
-          const laserMidY = (gw.y + w.y) / 2;
-          lg.scale.set(1, laserH, 1);
-          lg.position.set(w.x, laserMidY, w.z);
-          lg.material.color.setHex(piece.color);
-          lg.visible = curY !== ghostY;
-
           // Wall shadows (at ghost/landing height)
           this.backWallShadows[i].position.set(w.x, gw.y, pitOZ - 0.01);
           this.backWallShadows[i].material.color.setHex(piece.color);
@@ -596,7 +589,7 @@ AFRAME.registerComponent('blockout-game', {
           this.curMeshes[i].visible = false;
           this.ghostMeshes[i].visible = false;
           this.floorPrints[i].visible = false;
-          this.laserGuides[i].visible = false;
+
           this.backWallShadows[i].visible = false;
           this.leftWallShadows[i].visible = false;
         }
@@ -615,9 +608,9 @@ AFRAME.registerComponent('blockout-game', {
     // --- Next piece (behind pit, right side of HUD at eye level) ---
     if (nextPieceIdx !== null) {
       const np = PIECES[nextPieceIdx];
-      const behindZ = -(PIT_D * BLOCK) / 2 - 0.3;
-      const nOX = 1.3;  // right side, matching HUD
-      const nOY = PIT_H * BLOCK * 0.55 + 0.3;  // just below "NEXT" label
+      const nOX = (PIT_W * BLOCK) / 2 + 0.6;  // right side, matching HUD
+      const nOY = PIT_H * BLOCK + 0.3;  // top of pit, below NEXT label
+      const behindZ = 0;  // same Z plane as pit center
       const nOZ = behindZ;
       // Center the preview piece
       const pMaxX = Math.max(...np.blocks.map(b => b[0]));
