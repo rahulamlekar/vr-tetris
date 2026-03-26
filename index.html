@@ -124,10 +124,13 @@ function updateHighestBlock() {
 
 function randomPieceIdx() { return Math.floor(Math.random() * PIECES.length); }
 
-// Y-axis rotation only: spin on the XZ plane
-function spinBlocks(blocks) {
-  // Rotate 90° around Y: [x,0,z] -> [z,0,-x], then normalize
-  const spun = blocks.map(([x, y, z]) => [z, y, -x]);
+// Y-axis rotation: spin on the XZ plane
+function spinBlocks(blocks, dir) {
+  // CW (dir=1):  [x,0,z] -> [z, 0, -x]
+  // CCW (dir=-1): [x,0,z] -> [-z, 0, x]
+  const spun = dir > 0
+    ? blocks.map(([x, y, z]) => [z, y, -x])
+    : blocks.map(([x, y, z]) => [-z, y, x]);
   const minX = Math.min(...spun.map(b => b[0]));
   const minZ = Math.min(...spun.map(b => b[2]));
   return spun.map(([x, y, z]) => [x - minX, y, z - minZ]);
@@ -222,9 +225,7 @@ function dropOne() {
 
 function spinPiece(dir) {
   if (gameOver) return;
-  let newBlocks = curBlocks;
-  const spins = dir > 0 ? 1 : 3;
-  for (let i = 0; i < spins; i++) newBlocks = spinBlocks(newBlocks);
+  let newBlocks = spinBlocks(curBlocks, dir);
   for (const [kx, kz] of [[0,0],[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1]]) {
     if (!collides(newBlocks, curX + kx, curY, curZ + kz)) {
       curBlocks = newBlocks; curX += kx; curZ += kz; return;
