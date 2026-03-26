@@ -53,7 +53,7 @@
   <a-entity light="type: point; color: #48f; intensity: 0.4" position="0 2 0"></a-entity>
 
   <!-- Camera: on the wall looking into the pit -->
-  <a-entity id="rig" position="0 2.8 3.2" pit-camera>
+  <a-entity id="rig" position="0 0.8 3.2" pit-camera>
     <a-camera wasd-controls-enabled="false" look-controls="pointerLockEnabled: false"
               rotation="-30 0 0" fov="80"></a-camera>
   </a-entity>
@@ -255,10 +255,13 @@ function updateHUD() {
 // ============================================================
 
 AFRAME.registerComponent('pit-camera', {
-  // Camera stays fixed on the wall — no movement needed
-  // In VR the player can lean/peek naturally
-  init: function() {},
-  tick: function() {}
+  // Camera rises to stay just above the highest stacked blocks
+  init: function() { this.currentY = 0.8; },
+  tick: function() {
+    const targetY = highestBlock * BLOCK + 0.8;
+    this.currentY += (targetY - this.currentY) * 0.06;
+    this.el.object3D.position.y = this.currentY;
+  }
 });
 
 // ============================================================
@@ -363,14 +366,13 @@ AFRAME.registerComponent('blockout-game', {
   },
 
   createVRHud: function() {
-    // HUD floats ABOVE the pit, between camera and pit, facing the player
-    const topOfPit = PIT_H * BLOCK + 0.3;
+    // HUD container — moves with camera height in tick()
+    const hudContainer = document.createElement('a-entity');
+    hudContainer.setAttribute('id', 'hud-container');
+    hudContainer.setAttribute('position', '0 0.8 0.5'); // starts at camera height, slightly toward camera
 
-    // === Score/info on the LEFT side above the pit ===
-    const leftHud = document.createElement('a-entity');
+    // === Score/info on the LEFT ===
     const leftX = -(PIT_W * BLOCK) / 2 - 0.6;
-    leftHud.setAttribute('position', `${leftX} ${topOfPit} 0`);
-
     const leftTexts = [
       ['vr-title', 'BLOCKOUT', 0.5, '#0ff', '3'],
       ['vr-score', 'Score: 0', 0.15, '#0ff', '2.5'],
@@ -380,30 +382,28 @@ AFRAME.registerComponent('blockout-game', {
     leftTexts.forEach(([id, val, y, color, w]) => {
       const t = document.createElement('a-text');
       t.setAttribute('id', id); t.setAttribute('value', val);
-      t.setAttribute('position', `0 ${y} 0`);
+      t.setAttribute('position', `${leftX} ${y} 0`);
       t.setAttribute('color', color); t.setAttribute('width', w);
       t.setAttribute('font', 'monoid'); t.setAttribute('side', 'double');
       t.setAttribute('align', 'right');
-      leftHud.appendChild(t);
+      hudContainer.appendChild(t);
     });
-    this.el.appendChild(leftHud);
 
-    // === NEXT piece label on the RIGHT side above the pit ===
-    const rightHud = document.createElement('a-entity');
+    // === NEXT label on the RIGHT (same height as title) ===
     const rightX = (PIT_W * BLOCK) / 2 + 1.2;
-    rightHud.setAttribute('position', `${rightX} ${topOfPit} 0.5`);
-
     const nt = document.createElement('a-text');
     nt.setAttribute('id', 'vr-next-label');
     nt.setAttribute('value', 'NEXT');
-    nt.setAttribute('position', '0 0.5 0');
+    nt.setAttribute('position', `${rightX} 0.5 0`);
     nt.setAttribute('color', '#888');
     nt.setAttribute('width', '2.5');
     nt.setAttribute('font', 'monoid');
     nt.setAttribute('side', 'double');
     nt.setAttribute('align', 'left');
-    rightHud.appendChild(nt);
-    this.el.appendChild(rightHud);
+    hudContainer.appendChild(nt);
+
+    this.el.appendChild(hudContainer);
+    this.hudContainer = hudContainer;
   },
 
   buildPit: function (parentObj, THREE) {
@@ -605,13 +605,18 @@ AFRAME.registerComponent('blockout-game', {
       }
     }
 
-    // --- Next piece preview: shown from Z-axis (top-down view, tilted toward camera) ---
-    // Pieces are flat on XZ, so we map X->screen X, Z->screen Y to show the shape
+    // --- Move HUD container to track camera height ---
+    const camY = highestBlock * BLOCK + 0.8; // matches pit-camera targetY
+    if (this.hudContainer) {
+      this.hudContainer.object3D.position.y = camY;
+    }
+
+    // --- Next piece preview: Z-axis view, tracks camera height, in line with score ---
     if (nextPieceIdx !== null) {
       const np = PIECES[nextPieceIdx];
-      const nOX = (PIT_W * BLOCK) / 2 + 1.2;  // well to the right of the grid
-      const nOY = PIT_H * BLOCK - 0.1;         // just below top of pit
-      const nOZ = 0.5;                          // slightly toward camera
+      const nOX = (PIT_W * BLOCK) / 2 + 1.2;
+      const nOY = camY - 0.1;  // slightly below HUD title, in line with score
+      const nOZ = 0.5;
       const pMaxX = Math.max(...np.blocks.map(b => b[0]));
       const pMaxZ = Math.max(...np.blocks.map(b => b[2]));
       const scale = BLOCK * 0.7;
@@ -619,7 +624,6 @@ AFRAME.registerComponent('blockout-game', {
         if (i < np.blocks.length) {
           const [bx, by, bz] = np.blocks[i];
           const m = this.nextMeshes[i];
-          // Map: piece X -> world X, piece Z -> world Y (so we see the top-down shape)
           m.position.set(
             nOX + (bx - pMaxX / 2) * scale,
             nOY - (bz - pMaxZ / 2) * scale,
@@ -631,7 +635,7 @@ AFRAME.registerComponent('blockout-game', {
       }
     }
 
-    // VR HUD
+    // VR HUD text updates
     const vs = document.getElementById('vr-score');
     const vl = document.getElementById('vr-layers');
     const vlv = document.getElementById('vr-level');
