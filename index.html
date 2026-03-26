@@ -695,6 +695,7 @@ AFRAME.registerComponent('vr-blockout-controls', {
     this.twistResetZone = 3;
     this.calibrated = false;
     this.calibrateTimer = 0;
+    this.neutralAngles = null; // store all 3 axes
 
     el.addEventListener('thumbstickmoved', (evt) => {
       const now = Date.now();
@@ -718,17 +719,40 @@ AFRAME.registerComponent('vr-blockout-controls', {
     const obj = this.el.object3D;
     if (!obj || gameOver) return;
 
-    const rollDeg = THREE.MathUtils.radToDeg(obj.rotation.z);
+    // Extract roll from quaternion — more reliable than euler for wrist twist
+    // Quest controllers: wrist roll maps to the controller's local Z axis
+    // We compute roll using atan2 from the quaternion components
+    const q = obj.quaternion;
+    // Roll (bank) from quaternion:
+    const sinr = 2 * (q.w * q.z + q.x * q.y);
+    const cosr = 1 - 2 * (q.y * q.y + q.z * q.z);
+    const rollRad = Math.atan2(sinr, cosr);
+    // Also get pitch for controllers that map twist to X
+    const sinp = 2 * (q.w * q.x - q.z * q.y);
+    const pitchRad = Math.abs(sinp) >= 1 ? Math.sign(sinp) * Math.PI / 2 : Math.asin(sinp);
+
+    const rollDeg = THREE.MathUtils.radToDeg(rollRad);
+    const pitchDeg = THREE.MathUtils.radToDeg(pitchRad);
 
     if (!this.calibrated) {
       this.calibrateTimer++;
-      if (this.calibrateTimer > 60) { this.neutralRoll = rollDeg; this.calibrated = true; }
+      if (this.calibrateTimer > 60) {
+        this.neutralAngles = { roll: rollDeg, pitch: pitchDeg };
+        this.calibrated = true;
+      }
       return;
     }
 
-    let twist = rollDeg - this.neutralRoll;
-    while (twist > 180) twist -= 360;
-    while (twist < -180) twist += 360;
+    // Check both roll and pitch — use whichever has more movement
+    let twistRoll = rollDeg - this.neutralAngles.roll;
+    let twistPitch = pitchDeg - this.neutralAngles.pitch;
+    while (twistRoll > 180) twistRoll -= 360;
+    while (twistRoll < -180) twistRoll += 360;
+    while (twistPitch > 180) twistPitch -= 360;
+    while (twistPitch < -180) twistPitch += 360;
+
+    // Use the axis with the largest twist
+    const twist = Math.abs(twistRoll) > Math.abs(twistPitch) ? twistRoll : twistPitch;
 
     if (twist > this.twistThreshold && this.lastTwistDir !== 1) {
       spinPiece(1); this.lastTwistDir = 1; this.pulseHaptic();
